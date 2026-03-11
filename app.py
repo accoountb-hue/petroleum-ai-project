@@ -14,77 +14,146 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ---------------- Theme ----------------
+# ---------------- PROFESSIONAL THEME ----------------
 st.markdown("""
 <style>
 :root{
-    --bg:#08101f; --bg2:#0d1530; --panel:#111936; --panel2:#182750;
-    --text:#eef3ff; --muted:#b8c7ea; --accent:#6aa8ff; --accent2:#3de0d0;
-    --border:rgba(122,176,255,.18);
+    --bg:#07111f;
+    --panel:#0f1b33;
+    --panel2:#142445;
+    --card:#13203d;
+    --text:#f5f9ff;
+    --muted:#c7d4f2;
+    --accent:#6db2ff;
+    --accent2:#41d8d0;
+    --border:rgba(255,255,255,0.10);
+    --gold:#ffd166;
 }
-.block-container{padding-top:1rem;padding-bottom:1rem;max-width:1400px;}
+.block-container{
+    padding-top:1rem;
+    padding-bottom:1rem;
+    max-width:1400px;
+}
 [data-testid="stAppViewContainer"]{
     background:
-      linear-gradient(rgba(8,16,31,.80), rgba(8,16,31,.93)),
-      url("https://images.unsplash.com/photo-1513828583688-c52646db42da?q=80&w=1800&auto=format&fit=crop");
-    background-size: cover;
-    background-attachment: fixed;
+        linear-gradient(rgba(7,17,31,0.90), rgba(7,17,31,0.94)),
+        url("https://images.unsplash.com/photo-1513828583688-c52646db42da?q=80&w=1800&auto=format&fit=crop");
+    background-size:cover;
+    background-position:center;
+    background-attachment:fixed;
 }
 [data-testid="stSidebar"]{
-    background: linear-gradient(180deg, rgba(17,25,54,.98), rgba(24,39,80,.98));
+    background:linear-gradient(180deg, #0c1730 0%, #122346 100%);
 }
-@keyframes floatY {0%{transform:translateY(0px)}50%{transform:translateY(-6px)}100%{transform:translateY(0px)}}
-@keyframes fadeUp {from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+h1,h2,h3,h4,p,li,label,div,span{
+    color:var(--text);
+}
+@keyframes fadeUp{
+    from{opacity:0;transform:translateY(12px);}
+    to{opacity:1;transform:translateY(0);}
+}
 .hero{
-    padding:1.6rem 1.7rem;border-radius:26px;
-    background:linear-gradient(135deg, rgba(17,25,54,.88), rgba(24,39,80,.88));
+    padding:1.6rem 1.8rem;
+    border-radius:24px;
+    background:linear-gradient(135deg, rgba(15,27,51,.95), rgba(20,36,69,.95));
     border:1px solid var(--border);
-    box-shadow:0 25px 60px rgba(0,0,0,.28);
-    animation:fadeUp .8s ease;
+    box-shadow:0 18px 45px rgba(0,0,0,.28);
+    animation:fadeUp .7s ease;
 }
-.hero h1{margin:0 0 .3rem 0;font-size:2.35rem;line-height:1.1}
-.hero p{margin:0;color:#d4dfff;font-size:1.01rem}
 .badge{
-    display:inline-block;padding:6px 12px;border-radius:999px;font-size:12px;
-    background:rgba(106,168,255,.12);border:1px solid rgba(106,168,255,.30);color:#d7e6ff;margin-bottom:.6rem
+    display:inline-block;
+    padding:6px 12px;
+    border-radius:999px;
+    font-size:12px;
+    color:#dce9ff;
+    background:rgba(109,178,255,.15);
+    border:1px solid rgba(109,178,255,.35);
+    margin-bottom:.7rem;
+}
+.hero h1{
+    margin:0 0 .35rem 0;
+    font-size:2.5rem;
+    color:white;
+}
+.hero p{
+    margin:0;
+    font-size:1.05rem;
+    color:#d8e4ff;
 }
 .notice{
-    padding:.9rem 1rem;border-radius:16px;
-    background:rgba(255,209,102,.08);border:1px solid rgba(255,209,102,.22);color:#ffe8aa;
-    animation:fadeUp 1s ease;
+    margin-top:1rem;
+    padding:1rem 1.1rem;
+    border-radius:18px;
+    background:rgba(255,209,102,.10);
+    border:1px solid rgba(255,209,102,.28);
+    color:#ffe7a3;
 }
-.metric-box{
-    padding:1rem;border-radius:20px;
-    background:linear-gradient(180deg, rgba(15,23,48,.90), rgba(22,38,78,.90));
-    border:1px solid rgba(142,214,255,.16);
-    box-shadow:0 10px 24px rgba(0,0,0,.15);
+.section-card{
+    margin-top:1rem;
+    padding:1.1rem 1.1rem 1rem 1.1rem;
+    border-radius:22px;
+    background:linear-gradient(180deg, rgba(15,27,51,.96), rgba(19,32,61,.96));
+    border:1px solid var(--border);
+    box-shadow:0 16px 36px rgba(0,0,0,.22);
     animation:fadeUp .8s ease;
 }
-.metric-label{font-size:.82rem;color:var(--muted)}
-.metric-value{font-size:1.8rem;font-weight:800;margin-top:.35rem}
-.section-card{
-    padding:1rem 1rem .85rem 1rem;border-radius:22px;
-    background:linear-gradient(180deg, rgba(17,25,54,.92), rgba(24,39,80,.92));
-    border:1px solid var(--border);
-    box-shadow:0 18px 36px rgba(0,0,0,.18);
-    animation:fadeUp .9s ease;
-    margin-top:1rem;
+.metric-card{
+    padding:1rem;
+    border-radius:18px;
+    background:linear-gradient(180deg, rgba(18,35,70,.95), rgba(16,28,54,.95));
+    border:1px solid rgba(255,255,255,.08);
 }
-.feature-card{
-    padding:1rem;border-radius:20px;background:linear-gradient(180deg, rgba(15,23,48,.90), rgba(22,38,78,.90));
-    border:1px solid rgba(142,214,255,.12);height:100%;
+.metric-title{
+    color:#c7d4f2;
+    font-size:.85rem;
 }
-.stTabs [data-baseweb="tab-list"]{gap:8px;}
+.metric-value{
+    color:white;
+    font-size:1.9rem;
+    font-weight:800;
+    margin-top:.3rem;
+}
+.info-grid{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:14px;
+}
+.info-box{
+    padding:1rem;
+    border-radius:18px;
+    background:linear-gradient(180deg, rgba(18,35,70,.90), rgba(16,28,54,.90));
+    border:1px solid rgba(255,255,255,.08);
+}
+.info-box h4{
+    margin:.2rem 0 .4rem 0;
+    color:white;
+}
+.info-box p{
+    color:#cfdcff;
+    margin:0;
+    line-height:1.6;
+}
+.stTabs [data-baseweb="tab-list"]{
+    gap:8px;
+}
 .stTabs [data-baseweb="tab"]{
-    background:#0f1730;border:1px solid rgba(106,168,255,.14);border-radius:14px;padding:.4rem .8rem;color:#dbe7ff
+    background:#122346;
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:14px;
+    padding:.45rem .85rem;
+    color:white;
 }
 .stTabs [aria-selected="true"]{
-    background:linear-gradient(135deg, rgba(106,168,255,.18), rgba(61,224,208,.12)) !important;
-    border-color:rgba(106,168,255,.35) !important;
+    background:linear-gradient(135deg, rgba(109,178,255,.22), rgba(65,216,208,.16)) !important;
+    border-color:rgba(109,178,255,.35) !important;
 }
 div.stButton > button, div.stDownloadButton > button{
-    border:none;border-radius:14px;padding:.7rem 1rem;font-weight:700;
-    background:linear-gradient(135deg, #6aa8ff, #3de0d0);color:#08101f
+    border:none;
+    border-radius:14px;
+    padding:.72rem 1rem;
+    font-weight:700;
+    background:linear-gradient(135deg, #6db2ff, #41d8d0);
+    color:#07111f;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -313,7 +382,27 @@ st.markdown("""
   <p>Upload petroleum datasets, analyze multi-well behavior, run decline analysis, detect anomalies, and generate AI-style engineering insights.</p>
 </div>
 """, unsafe_allow_html=True)
-st.markdown('<div class="notice">Now includes demo data, animated professional styling, multi-well comparison, anomaly screening, decline curve analysis, forecasting, and exportable reports.</div>', unsafe_allow_html=True)
+st.markdown('<div class="notice">This platform helps users upload structured petroleum datasets, visualize production and pressure trends, compare wells, detect anomalies, run decline analysis, and export engineering reports.</div>', unsafe_allow_html=True)
+
+st.markdown("""
+<div class="section-card">
+  <h3>What this platform does</h3>
+  <div class="info-grid">
+    <div class="info-box">
+      <h4>Upload and Read Data</h4>
+      <p>Supports CSV, Excel, TXT, and JSON structured petroleum datasets.</p>
+    </div>
+    <div class="info-box">
+      <h4>Analyze Wells</h4>
+      <p>Compare production, pressure, water cut, and GOR behavior across wells.</p>
+    </div>
+    <div class="info-box">
+      <h4>Generate Insights</h4>
+      <p>Provides AI-style engineering observations, decline analysis, and downloadable reports.</p>
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
 # ---------------- Sidebar ----------------
 with st.sidebar:
@@ -359,13 +448,13 @@ det = auto_detect_columns(raw_df)
 st.markdown('<div class="section-card">', unsafe_allow_html=True)
 c1, c2, c3, c4 = st.columns(4)
 with c1:
-    st.markdown(f'<div class="metric-box"><div class="metric-label">Rows</div><div class="metric-value">{len(raw_df)}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><div class="metric-title">Rows</div><div class="metric-value">{len(raw_df)}</div></div>', unsafe_allow_html=True)
 with c2:
-    st.markdown(f'<div class="metric-box"><div class="metric-label">Columns</div><div class="metric-value">{len(raw_df.columns)}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><div class="metric-title">Columns</div><div class="metric-value">{len(raw_df.columns)}</div></div>', unsafe_allow_html=True)
 with c3:
-    st.markdown(f'<div class="metric-box"><div class="metric-label">Detected Production</div><div class="metric-value">{det["production"] or "-"}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><div class="metric-title">Detected Production</div><div class="metric-value">{det["production"] or "-"}</div></div>', unsafe_allow_html=True)
 with c4:
-    st.markdown(f'<div class="metric-box"><div class="metric-label">Detected Well</div><div class="metric-value">{det["well"] or "-"}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><div class="metric-title">Detected Well</div><div class="metric-value">{det["well"] or "-"}</div></div>', unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["Data Preview", "Column Mapping", "Visual Analytics", "AI Insights", "Reports"])
