@@ -1,5 +1,6 @@
 import io
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -11,54 +12,47 @@ st.set_page_config(
     page_title="Petroleum Data Analysis with AI",
     page_icon="🛢️",
     layout="wide",
-    initial_sidebar_state="expanded",
 )
 
-# ---------------- PROFESSIONAL THEME ----------------
+# ---------- Clean professional style ----------
 st.markdown("""
 <style>
 :root{
-    --bg:#07111f;
-    --panel:#0f1b33;
-    --panel2:#142445;
-    --card:#13203d;
-    --text:#f5f9ff;
-    --muted:#c7d4f2;
-    --accent:#6db2ff;
-    --accent2:#41d8d0;
-    --border:rgba(255,255,255,0.10);
-    --gold:#ffd166;
-}
-.block-container{
-    padding-top:1rem;
-    padding-bottom:2rem;
-    max-width:1400px;
+    --bg:#0b1220;
+    --panel:#111a2e;
+    --panel2:#16233d;
+    --card:#16213a;
+    --text:#f3f7ff;
+    --muted:#b8c4dc;
+    --accent:#4da3ff;
+    --accent2:#2dd4bf;
+    --border:rgba(255,255,255,0.08);
 }
 [data-testid="stAppViewContainer"]{
-    background:
-        linear-gradient(rgba(7,17,31,0.90), rgba(7,17,31,0.94)),
-        url("https://images.unsplash.com/photo-1513828583688-c52646db42da?q=80&w=1800&auto=format&fit=crop");
-    background-size:cover;
-    background-position:center;
-    background-attachment:fixed;
+    background: linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
 }
-[data-testid="stSidebar"]{
-    background:linear-gradient(180deg, #0c1730 0%, #122346 100%);
+.block-container{
+    max-width: 1350px;
+    padding-top: 1.2rem;
+    padding-bottom: 2rem;
 }
-h1,h2,h3,h4,p,li,label,div,span{
-    color:var(--text);
+.main-title{
+    font-size: 2.7rem;
+    font-weight: 800;
+    color: white;
+    margin-bottom: .35rem;
 }
-@keyframes fadeUp{
-    from{opacity:0;transform:translateY(12px);}
-    to{opacity:1;transform:translateY(0);}
+.sub-title{
+    color: #d4def3;
+    font-size: 1.05rem;
+    line-height: 1.7;
 }
 .hero{
-    padding:1.6rem 1.8rem;
-    border-radius:24px;
-    background:linear-gradient(135deg, rgba(15,27,51,.95), rgba(20,36,69,.95));
-    border:1px solid var(--border);
-    box-shadow:0 18px 45px rgba(0,0,0,.28);
-    animation:fadeUp .7s ease;
+    background: linear-gradient(135deg, rgba(22,35,61,.98), rgba(17,26,46,.98));
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 1.6rem 1.6rem 1.35rem 1.6rem;
+    box-shadow: 0 18px 45px rgba(0,0,0,.22);
 }
 .badge{
     display:inline-block;
@@ -66,105 +60,83 @@ h1,h2,h3,h4,p,li,label,div,span{
     border-radius:999px;
     font-size:12px;
     color:#dce9ff;
-    background:rgba(109,178,255,.15);
-    border:1px solid rgba(109,178,255,.35);
-    margin-bottom:.7rem;
-}
-.hero h1{
-    margin:0 0 .35rem 0;
-    font-size:2.5rem;
-    color:white;
-}
-.hero p{
-    margin:0;
-    font-size:1.05rem;
-    color:#d8e4ff;
-}
-.notice{
-    margin-top:1rem;
-    padding:1rem 1.1rem;
-    border-radius:18px;
-    background:rgba(255,209,102,.10);
-    border:1px solid rgba(255,209,102,.28);
-    color:#ffe7a3;
+    background:rgba(77,163,255,.14);
+    border:1px solid rgba(77,163,255,.28);
+    margin-bottom:.8rem;
 }
 .section-card{
-    margin-top:1rem;
-    padding:1.1rem 1.1rem 1rem 1.1rem;
-    border-radius:22px;
-    background:linear-gradient(180deg, rgba(15,27,51,.96), rgba(19,32,61,.96));
-    border:1px solid var(--border);
-    box-shadow:0 16px 36px rgba(0,0,0,.22);
-    animation:fadeUp .8s ease;
+    margin-top: 1rem;
+    background: linear-gradient(180deg, rgba(17,26,46,.98), rgba(22,35,61,.98));
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    padding: 1.15rem 1.15rem 1rem 1.15rem;
+    box-shadow: 0 10px 28px rgba(0,0,0,.16);
 }
 .metric-card{
-    padding:1rem;
-    border-radius:18px;
-    background:linear-gradient(180deg, rgba(18,35,70,.95), rgba(16,28,54,.95));
-    border:1px solid rgba(255,255,255,.08);
+    background: linear-gradient(180deg, rgba(24,37,63,.98), rgba(17,26,46,.98));
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 1rem;
 }
 .metric-title{
-    color:#c7d4f2;
-    font-size:.85rem;
+    color: #b9c6dd;
+    font-size: .82rem;
 }
 .metric-value{
-    color:white;
-    font-size:1.9rem;
-    font-weight:800;
-    margin-top:.3rem;
+    color: white;
+    font-size: 1.9rem;
+    font-weight: 800;
+    margin-top: .25rem;
 }
 .info-grid{
     display:grid;
-    grid-template-columns:repeat(3,1fr);
-    gap:14px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
 }
 .info-box{
-    padding:1rem;
-    border-radius:18px;
-    background:linear-gradient(180deg, rgba(18,35,70,.90), rgba(16,28,54,.90));
-    border:1px solid rgba(255,255,255,.08);
+    background: linear-gradient(180deg, rgba(24,37,63,.98), rgba(17,26,46,.98));
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 1rem;
 }
 .info-box h4{
-    margin:.2rem 0 .4rem 0;
     color:white;
+    margin:0 0 .45rem 0;
 }
 .info-box p{
-    color:#cfdcff;
+    color:#d2ddf3;
     margin:0;
-    line-height:1.6;
+    line-height:1.7;
+}
+.center-note{
+    color:#d4def3;
+    line-height:1.8;
+    font-size:1rem;
 }
 .stTabs [data-baseweb="tab-list"]{
     gap:8px;
 }
 .stTabs [data-baseweb="tab"]{
-    background:#122346;
+    background:#16233d;
     border:1px solid rgba(255,255,255,.08);
     border-radius:14px;
-    padding:.45rem .85rem;
     color:white;
+    padding:.42rem .85rem;
 }
 .stTabs [aria-selected="true"]{
-    background:linear-gradient(135deg, rgba(109,178,255,.22), rgba(65,216,208,.16)) !important;
-    border-color:rgba(109,178,255,.35) !important;
+    background: linear-gradient(135deg, rgba(77,163,255,.23), rgba(45,212,191,.16)) !important;
+    border-color: rgba(77,163,255,.32) !important;
 }
 div.stButton > button, div.stDownloadButton > button{
     border:none;
     border-radius:14px;
-    padding:.72rem 1rem;
+    padding:.75rem 1rem;
     font-weight:700;
-    background:linear-gradient(135deg, #6db2ff, #41d8d0);
+    background: linear-gradient(135deg, #4da3ff, #2dd4bf);
     color:#07111f;
 }
-.stSelectbox div[data-baseweb="select"] > div{
-    background-color:white !important;
-    color:black !important;
-}
-.stSelectbox div[data-baseweb="select"] input{
-    color:black !important;
-}
-.stMultiSelect div[data-baseweb="select"] > div{
-    background-color:white !important;
-    color:black !important;
+hr{
+    border-color: rgba(255,255,255,.08);
 }
 </style>
 """, unsafe_allow_html=True)
@@ -264,6 +236,7 @@ def fit_decline_models(time_vals, q_vals):
     q = q[mask]
     if len(q) < 5:
         return None
+
     q0 = q[0]
 
     lnq = np.log(q)
@@ -396,79 +369,85 @@ def text_report(df, mapping, selected_well, insights, recs, best_decline_name=No
         lines.append(f"* {item}")
     return "\n".join(lines)
 
-# ---------------- Header ----------------
+# ---------- Header ----------
 st.markdown("""
 <div class="hero">
-  <div class="badge">Version 4 • Professional Petroleum Dashboard</div>
-  <h1>Petroleum Data Analysis with AI</h1>
-  <p>Upload petroleum datasets, analyze multi-well behavior, run decline analysis, detect anomalies, and generate AI-style engineering insights.</p>
+  <div class="badge">Version 5 • Clean Professional Petroleum Dashboard</div>
+  <div class="main-title">Petroleum Data Analysis with AI</div>
+  <div class="sub-title">
+    Upload structured petroleum datasets, analyze production behavior, compare wells,
+    evaluate pressure response, detect anomalies, run decline analysis, and export engineering reports.
+  </div>
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown(
-    '<div class="notice">This platform helps users upload structured petroleum datasets, visualize production and pressure trends, compare wells, detect anomalies, run decline analysis, and export engineering reports.</div>',
-    unsafe_allow_html=True
-)
-
 st.markdown("""
 <div class="section-card">
-  <h3>How to Use This Platform</h3>
+  <h3 style="margin-top:0;">Platform Overview</h3>
   <div class="info-grid">
     <div class="info-box">
-      <h4>1. Upload Data</h4>
-      <p>Upload a structured petroleum dataset in CSV, Excel, TXT, or JSON format, or use the built-in demo dataset.</p>
+      <h4>Petroleum Data Input</h4>
+      <p>Supports CSV, Excel, TXT, and JSON structured datasets containing well production and reservoir-related measurements.</p>
     </div>
     <div class="info-box">
-      <h4>2. Map Engineering Columns</h4>
-      <p>Select the time, production, pressure, water cut, and GOR columns to guide the analysis correctly.</p>
+      <h4>Engineering Analysis</h4>
+      <p>Maps production, pressure, water cut, and GOR columns to generate clear engineering plots and trend interpretation.</p>
     </div>
     <div class="info-box">
-      <h4>3. Analyze and Interpret</h4>
-      <p>Review charts, compare wells, detect anomalies, evaluate decline behavior, and export the engineering report.</p>
+      <h4>Decision Support</h4>
+      <p>Provides decline analysis, anomaly screening, AI-style insights, and report export for technical review.</p>
     </div>
   </div>
 </div>
 """, unsafe_allow_html=True)
 
-# ---------------- Sidebar ----------------
-with st.sidebar:
-    st.header("Workspace")
-    source = st.radio("Choose data source", ["Upload your file", "Use demo dataset"])
-    uploaded = None
+# ---------- Controls in center ----------
+st.markdown('<div class="section-card">', unsafe_allow_html=True)
+st.subheader("Start Analysis")
 
+ctrl1, ctrl2 = st.columns([1.1, 1.4])
+
+with ctrl1:
+    source = st.radio("Choose data source", ["Upload your file", "Use demo dataset"])
+
+with ctrl2:
+    uploaded = None
     if source == "Upload your file":
-        uploaded = st.file_uploader("Upload structured dataset", type=["csv", "xlsx", "xls", "txt", "json"])
+        uploaded = st.file_uploader(
+            "Upload structured dataset",
+            type=["csv", "xlsx", "xls", "txt", "json"]
+        )
         st.caption("Supported: CSV, Excel, TXT, JSON")
     else:
         st.info("Demo petroleum dataset is active.")
+st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.subheader("Petroleum Engineering Scope")
-    st.markdown("""
-This platform is designed to support petroleum engineering data analysis through:
+st.markdown("""
+<div class="section-card">
+  <h3 style="margin-top:0;">How to Use This Platform</h3>
+  <div class="info-grid">
+    <div class="info-box">
+      <h4>1. Load Data</h4>
+      <p>Upload a real petroleum dataset or start with the built-in demo data.</p>
+    </div>
+    <div class="info-box">
+      <h4>2. Map Columns</h4>
+      <p>Select the correct columns for time, production, pressure, water cut, and GOR.</p>
+    </div>
+    <div class="info-box">
+      <h4>3. Review Results</h4>
+      <p>Explore charts, compare wells, inspect decline models, and download the engineering report.</p>
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
-- Well production trend analysis  
-- Reservoir pressure behavior interpretation  
-- Water cut monitoring  
-- GOR performance evaluation  
-- Decline curve analysis  
-- Production forecasting  
-- Engineering report generation  
-""")
-
-    st.markdown("---")
-    st.subheader("Platform Purpose")
-    st.write(
-        "The goal of this system is to help students and engineers upload structured well data, "
-        "visualize performance, detect abnormal behavior, and generate AI-style engineering insights."
-    )
-
-# ---------------- Load Data ----------------
+# ---------- Load data ----------
 if source == "Use demo dataset":
     raw_df = demo_dataset()
 else:
     if uploaded is None:
-        st.info("Upload a structured dataset from the sidebar or switch to demo mode.")
+        st.info("Upload a structured dataset to continue.")
         st.stop()
     try:
         raw_df = load_uploaded_file(uploaded)
@@ -482,20 +461,27 @@ if raw_df.empty:
 
 det = auto_detect_columns(raw_df)
 
-# KPI row
+# ---------- KPI row ----------
 st.markdown('<div class="section-card">', unsafe_allow_html=True)
-c1, c2, c3, c4 = st.columns(4)
-with c1:
+k1, k2, k3, k4 = st.columns(4)
+with k1:
     st.markdown(f'<div class="metric-card"><div class="metric-title">Rows</div><div class="metric-value">{len(raw_df)}</div></div>', unsafe_allow_html=True)
-with c2:
+with k2:
     st.markdown(f'<div class="metric-card"><div class="metric-title">Columns</div><div class="metric-value">{len(raw_df.columns)}</div></div>', unsafe_allow_html=True)
-with c3:
+with k3:
     st.markdown(f'<div class="metric-card"><div class="metric-title">Detected Production</div><div class="metric-value">{det["production"] or "-"}</div></div>', unsafe_allow_html=True)
-with c4:
+with k4:
     st.markdown(f'<div class="metric-card"><div class="metric-title">Detected Well</div><div class="metric-value">{det["well"] or "-"}</div></div>', unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Data Preview", "Column Mapping", "Visual Analytics", "AI Insights", "Reports"])
+# ---------- Tabs ----------
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "Data Preview",
+    "Column Mapping",
+    "Visual Analytics",
+    "AI Insights",
+    "Reports"
+])
 
 with tab1:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
@@ -506,7 +492,8 @@ with tab1:
 
 with tab2:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("Map Your Columns")
+    st.subheader("Map Engineering Columns")
+
     cols = list(raw_df.columns)
     num_cols = [c for c in raw_df.columns if pd.api.types.is_numeric_dtype(raw_df[c])]
     left, mid, right = st.columns(3)
@@ -565,8 +552,8 @@ insights, recs = [], []
 with tab3:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("Visual Analytics")
-    a, b = st.columns(2)
 
+    a, b = st.columns(2)
     if mapping["production"]:
         fig = px.line(
             df,
@@ -590,7 +577,6 @@ with tab3:
         b.plotly_chart(fig, use_container_width=True)
 
     c, d = st.columns(2)
-
     if mapping["water_cut"]:
         fig = px.line(
             df,
@@ -636,7 +622,7 @@ with tab3:
             color="_anomaly",
             title="Production Outlier Screening",
             template="plotly_dark",
-            color_discrete_map={"Normal":"#3de0d0","Possible Outlier":"#ff6b6b"}
+            color_discrete_map={"Normal": "#2dd4bf", "Possible Outlier": "#ff6b6b"}
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -663,10 +649,8 @@ with tab4:
 
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=time_hist, y=q_hist, mode="lines+markers", name="Actual"))
-
             for model_name, info in results.items():
                 fig.add_trace(go.Scatter(x=time_hist, y=info["qhat"], mode="lines", name=f"{model_name} Fit"))
-
             fig.update_layout(template="plotly_dark", title="Decline Model Comparison")
             st.plotly_chart(fig, use_container_width=True)
 
@@ -681,7 +665,6 @@ with tab4:
 
             if fc is not None:
                 best_name, future_t, pred, _ = fc
-
                 if dt_values is not None and dt_values.notna().sum() >= 2:
                     step = dt_values.dropna().iloc[-1] - dt_values.dropna().iloc[-2]
                     if pd.isna(step) or step == pd.Timedelta(0):
@@ -714,17 +697,21 @@ with tab4:
 with tab5:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("Export")
+
     report = text_report(df, mapping, selected_well, insights, recs, best_decline_name)
+
     st.download_button(
         "Download engineering report (.txt)",
         data=report.encode("utf-8"),
         file_name="petroleum_ai_report.txt",
         mime="text/plain"
     )
+
     st.download_button(
         "Download current filtered data (.csv)",
-        data=df.to_csv(index=False).encode("utf-8"),
+        data=df.to_csv(index=False),
         file_name="filtered_petroleum_data.csv",
         mime="text/csv"
     )
+
     st.markdown('</div>', unsafe_allow_html=True)
