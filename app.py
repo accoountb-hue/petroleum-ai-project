@@ -14,105 +14,153 @@ st.set_page_config(
     layout="wide",
 )
 
-# ---------- Clean professional style ----------
+# ---------- Professional Clean Theme ----------
 st.markdown("""
 <style>
 :root{
-    --bg:#0b1220;
-    --panel:#111a2e;
+    --bg:#07101d;
+    --bg2:#0b1324;
+    --panel:#0f1b33;
     --panel2:#16233d;
-    --card:#16213a;
-    --text:#f3f7ff;
-    --muted:#b8c4dc;
+    --card:#182742;
+    --text:#f8fbff;
+    --muted:#d4def2;
+    --soft:#b8c7e6;
     --accent:#4da3ff;
     --accent2:#2dd4bf;
-    --border:rgba(255,255,255,0.08);
+    --gold:#ffd166;
+    --border:rgba(255,255,255,.10);
+    --shadow:0 18px 42px rgba(0,0,0,.20);
 }
+
 [data-testid="stAppViewContainer"]{
-    background: linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
+    background:
+      linear-gradient(rgba(7,16,29,.72), rgba(7,16,29,.82)),
+      url("https://images.unsplash.com/photo-1513828583688-c52646db42da?q=80&w=1800&auto=format&fit=crop");
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
 }
+
 .block-container{
-    max-width: 1350px;
+    max-width: 1380px;
     padding-top: 1.2rem;
-    padding-bottom: 2rem;
+    padding-bottom: 2.5rem;
 }
+
+html, body, [class*="css"] {
+    color: var(--text);
+}
+
 .main-title{
-    font-size: 2.7rem;
+    font-size: 2.9rem;
     font-weight: 800;
     color: white;
-    margin-bottom: .35rem;
+    line-height: 1.1;
+    margin-bottom: .45rem;
 }
+
 .sub-title{
-    color: #d4def3;
-    font-size: 1.05rem;
-    line-height: 1.7;
+    color: var(--muted);
+    font-size: 1.07rem;
+    line-height: 1.8;
 }
+
 .hero{
-    background: linear-gradient(135deg, rgba(22,35,61,.98), rgba(17,26,46,.98));
+    background: linear-gradient(135deg, rgba(16,27,51,.90), rgba(12,19,36,.88));
     border: 1px solid var(--border);
-    border-radius: 24px;
-    padding: 1.6rem 1.6rem 1.35rem 1.6rem;
-    box-shadow: 0 18px 45px rgba(0,0,0,.22);
+    border-radius: 26px;
+    padding: 1.6rem 1.6rem 1.3rem 1.6rem;
+    box-shadow: var(--shadow);
 }
+
 .badge{
     display:inline-block;
     padding:6px 12px;
     border-radius:999px;
     font-size:12px;
-    color:#dce9ff;
-    background:rgba(77,163,255,.14);
+    color:#e5efff;
+    background:rgba(77,163,255,.16);
     border:1px solid rgba(77,163,255,.28);
     margin-bottom:.8rem;
 }
+
 .section-card{
     margin-top: 1rem;
-    background: linear-gradient(180deg, rgba(17,26,46,.98), rgba(22,35,61,.98));
+    background: linear-gradient(180deg, rgba(15,27,51,.92), rgba(17,29,52,.90));
     border: 1px solid var(--border);
     border-radius: 22px;
     padding: 1.15rem 1.15rem 1rem 1.15rem;
-    box-shadow: 0 10px 28px rgba(0,0,0,.16);
+    box-shadow: 0 12px 34px rgba(0,0,0,.14);
 }
+
 .metric-card{
-    background: linear-gradient(180deg, rgba(24,37,63,.98), rgba(17,26,46,.98));
+    background: linear-gradient(180deg, rgba(24,39,66,.96), rgba(17,29,52,.96));
     border: 1px solid var(--border);
     border-radius: 18px;
     padding: 1rem;
 }
+
 .metric-title{
-    color: #b9c6dd;
-    font-size: .82rem;
+    color: var(--soft);
+    font-size: .84rem;
 }
+
 .metric-value{
     color: white;
     font-size: 1.9rem;
     font-weight: 800;
     margin-top: .25rem;
 }
+
 .info-grid{
     display:grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 14px;
 }
+
 .info-box{
-    background: linear-gradient(180deg, rgba(24,37,63,.98), rgba(17,26,46,.98));
+    background: linear-gradient(180deg, rgba(24,39,66,.96), rgba(17,29,52,.96));
     border: 1px solid var(--border);
     border-radius: 18px;
     padding: 1rem;
 }
+
 .info-box h4{
     color:white;
     margin:0 0 .45rem 0;
 }
+
 .info-box p{
-    color:#d2ddf3;
+    color: var(--muted);
     margin:0;
-    line-height:1.7;
+    line-height:1.75;
 }
-.center-note{
-    color:#d4def3;
-    line-height:1.8;
-    font-size:1rem;
+
+.small-note{
+    color: var(--muted);
+    line-height: 1.8;
+    font-size: 1rem;
 }
+
+.rank-box{
+    background: linear-gradient(180deg, rgba(31,53,89,.96), rgba(17,29,52,.96));
+    border:1px solid var(--border);
+    border-radius:18px;
+    padding:1rem;
+}
+
+.footer-box{
+    margin-top:1rem;
+    text-align:center;
+    color:#dbe6fb;
+    padding:1rem;
+    border-radius:18px;
+    background: rgba(12,19,36,.72);
+    border:1px solid rgba(255,255,255,.08);
+}
+
+/* tabs */
 .stTabs [data-baseweb="tab-list"]{
     gap:8px;
 }
@@ -121,22 +169,56 @@ st.markdown("""
     border:1px solid rgba(255,255,255,.08);
     border-radius:14px;
     color:white;
-    padding:.42rem .85rem;
+    padding:.46rem .88rem;
 }
 .stTabs [aria-selected="true"]{
     background: linear-gradient(135deg, rgba(77,163,255,.23), rgba(45,212,191,.16)) !important;
-    border-color: rgba(77,163,255,.32) !important;
+    border-color: rgba(77,163,255,.35) !important;
 }
+
+/* buttons */
 div.stButton > button, div.stDownloadButton > button{
     border:none;
     border-radius:14px;
-    padding:.75rem 1rem;
+    padding:.78rem 1rem;
     font-weight:700;
     background: linear-gradient(135deg, #4da3ff, #2dd4bf);
     color:#07111f;
 }
-hr{
-    border-color: rgba(255,255,255,.08);
+
+/* make inputs readable */
+.stSelectbox div[data-baseweb="select"] > div,
+.stMultiSelect div[data-baseweb="select"] > div{
+    background:#ffffff !important;
+    color:#111827 !important;
+}
+.stSelectbox svg, .stMultiSelect svg{
+    fill:#111827 !important;
+}
+.stTextInput input, .stNumberInput input, .stDateInput input{
+    background:#ffffff !important;
+    color:#111827 !important;
+}
+
+/* radio */
+div[role="radiogroup"] label{
+    color:white !important;
+}
+
+/* dataframe container */
+div[data-testid="stDataFrame"]{
+    border-radius: 16px;
+    overflow: hidden;
+}
+
+/* responsive */
+@media (max-width: 900px){
+    .info-grid{
+        grid-template-columns: 1fr;
+    }
+    .main-title{
+        font-size: 2.1rem;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -308,13 +390,15 @@ def ai_summary(df, mapping):
             slope = float(LinearRegression().fit(np.arange(len(prod)).reshape(-1, 1), prod.values).coef_[0])
             if slope < 0:
                 insights.append(f"Production is declining by about {abs(slope):.2f} units per record.")
-                recs.append("Compare decline with expected reservoir depletion behavior.")
+                recs.append("The well may be experiencing natural depletion and should be reviewed using decline diagnostics.")
             elif slope > 0:
                 insights.append(f"Production is increasing by about {slope:.2f} units per record.")
+                recs.append("Production uplift may indicate operational improvement or stimulation effect.")
+
             n_out = int(detect_outliers_iqr(df[prod_col]).fillna(False).sum())
             if n_out:
                 insights.append(f"{n_out} possible production outlier(s) detected.")
-                recs.append("Validate unusual production points before engineering interpretation.")
+                recs.append("Abnormal production points should be validated before using the dataset for engineering decisions.")
 
     if press_col:
         p = pd.to_numeric(df[press_col], errors="coerce").dropna()
@@ -322,7 +406,7 @@ def ai_summary(df, mapping):
             slope = float(LinearRegression().fit(np.arange(len(p)).reshape(-1, 1), p.values).coef_[0])
             if slope < 0:
                 insights.append(f"Pressure is declining by about {abs(slope):.2f} units per record.")
-                recs.append("Assess pressure maintenance need or operational optimization.")
+                recs.append("Pressure support or depletion management may need evaluation.")
 
     if wc_col:
         wc = pd.to_numeric(df[wc_col], errors="coerce").dropna()
@@ -330,7 +414,7 @@ def ai_summary(df, mapping):
             slope = float(LinearRegression().fit(np.arange(len(wc)).reshape(-1, 1), wc.values).coef_[0])
             if slope > 0:
                 insights.append(f"Water cut is increasing by {slope:.4f} per record.")
-                recs.append("Rising water cut may indicate water breakthrough or coning effects.")
+                recs.append("Rising water cut may indicate water breakthrough, coning, or sweep changes.")
 
     if gor_col:
         gor = pd.to_numeric(df[gor_col], errors="coerce").dropna()
@@ -338,12 +422,12 @@ def ai_summary(df, mapping):
             slope = float(LinearRegression().fit(np.arange(len(gor)).reshape(-1, 1), gor.values).coef_[0])
             if slope > 0:
                 insights.append(f"GOR is increasing by {slope:.2f} units per record.")
-                recs.append("Review gas behavior and depletion response.")
+                recs.append("Gas behavior should be reviewed to assess depletion and phase-performance changes.")
 
     if not insights:
         insights.append("Not enough mapped data for strong AI-style interpretation yet.")
     if not recs:
-        recs.append("Upload richer time-series data or use the demo dataset.")
+        recs.append("Upload richer time-series well data or use the demo dataset.")
 
     return insights, recs
 
@@ -369,43 +453,51 @@ def text_report(df, mapping, selected_well, insights, recs, best_decline_name=No
         lines.append(f"* {item}")
     return "\n".join(lines)
 
+def rank_wells(df, well_col, production_col):
+    grp = df.groupby(well_col)[production_col].agg(["mean", "max", "min", "count"]).reset_index()
+    grp.columns = [well_col, "Average_Production", "Max_Production", "Min_Production", "Records"]
+    grp = grp.sort_values("Average_Production", ascending=False).reset_index(drop=True)
+    grp["Rank"] = np.arange(1, len(grp) + 1)
+    return grp
+
 # ---------- Header ----------
 st.markdown("""
 <div class="hero">
-  <div class="badge">Version 5 • Clean Professional Petroleum Dashboard</div>
+  <div class="badge">Version 6 • Petroleum Analytics Platform</div>
   <div class="main-title">Petroleum Data Analysis with AI</div>
   <div class="sub-title">
-    Upload structured petroleum datasets, analyze production behavior, compare wells,
-    evaluate pressure response, detect anomalies, run decline analysis, and export engineering reports.
+    A petroleum engineering analytics platform for production trend interpretation,
+    pressure behavior review, well ranking, decline curve analysis, anomaly screening,
+    and AI-assisted engineering reporting.
   </div>
 </div>
 """, unsafe_allow_html=True)
 
 st.markdown("""
 <div class="section-card">
-  <h3 style="margin-top:0;">Platform Overview</h3>
+  <h3 style="margin-top:0;">Why This Platform Matters</h3>
   <div class="info-grid">
     <div class="info-box">
-      <h4>Petroleum Data Input</h4>
-      <p>Supports CSV, Excel, TXT, and JSON structured datasets containing well production and reservoir-related measurements.</p>
+      <h4>Reservoir Performance Analytics</h4>
+      <p>Transforms raw petroleum datasets into interpretable production and pressure trends for engineering review.</p>
     </div>
     <div class="info-box">
-      <h4>Engineering Analysis</h4>
-      <p>Maps production, pressure, water cut, and GOR columns to generate clear engineering plots and trend interpretation.</p>
+      <h4>Operational Decision Support</h4>
+      <p>Highlights abnormal behavior, compares well performance, and supports faster technical interpretation.</p>
     </div>
     <div class="info-box">
-      <h4>Decision Support</h4>
-      <p>Provides decline analysis, anomaly screening, AI-style insights, and report export for technical review.</p>
+      <h4>Student & Engineer Ready</h4>
+      <p>Built to demonstrate practical petroleum data analytics using AI-style insights in a professional dashboard format.</p>
     </div>
   </div>
 </div>
 """, unsafe_allow_html=True)
 
-# ---------- Controls in center ----------
+# ---------- Controls ----------
 st.markdown('<div class="section-card">', unsafe_allow_html=True)
 st.subheader("Start Analysis")
 
-ctrl1, ctrl2 = st.columns([1.1, 1.4])
+ctrl1, ctrl2 = st.columns([1.05, 1.45])
 
 with ctrl1:
     source = st.radio("Choose data source", ["Upload your file", "Use demo dataset"])
@@ -428,15 +520,15 @@ st.markdown("""
   <div class="info-grid">
     <div class="info-box">
       <h4>1. Load Data</h4>
-      <p>Upload a real petroleum dataset or start with the built-in demo data.</p>
+      <p>Upload a real petroleum dataset or begin with the built-in demo data.</p>
     </div>
     <div class="info-box">
       <h4>2. Map Columns</h4>
-      <p>Select the correct columns for time, production, pressure, water cut, and GOR.</p>
+      <p>Select engineering columns such as time, production, pressure, water cut, and GOR.</p>
     </div>
     <div class="info-box">
       <h4>3. Review Results</h4>
-      <p>Explore charts, compare wells, inspect decline models, and download the engineering report.</p>
+      <p>Explore trends, compare wells, check rankings, inspect decline behavior, and export a report.</p>
     </div>
   </div>
 </div>
@@ -475,22 +567,44 @@ with k4:
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------- Tabs ----------
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "Overview",
     "Data Preview",
     "Column Mapping",
-    "Visual Analytics",
-    "AI Insights",
+    "Analytics",
+    "Forecast & AI",
     "Reports"
 ])
 
 with tab1:
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.subheader("Platform Overview")
+    st.markdown("""
+<div class="info-grid">
+  <div class="info-box">
+    <h4>Supported Engineering Inputs</h4>
+    <p>Time, well name, production, pressure, water cut, and GOR columns can be mapped for structured analysis.</p>
+  </div>
+  <div class="info-box">
+    <h4>Analysis Scope</h4>
+    <p>The platform performs visual analytics, well comparison, production anomaly screening, decline analysis, and forecasting.</p>
+  </div>
+  <div class="info-box">
+    <h4>Output Value</h4>
+    <p>Users can generate AI-style engineering observations and export a simple petroleum report for academic or technical use.</p>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with tab2:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("Dataset Preview")
     st.dataframe(raw_df.head(30), use_container_width=True)
     st.write("Columns:", list(raw_df.columns))
     st.markdown('</div>', unsafe_allow_html=True)
 
-with tab2:
+with tab3:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("Map Engineering Columns")
 
@@ -549,7 +663,7 @@ if mapping["well"]:
 best_decline_name = None
 insights, recs = [], []
 
-with tab3:
+with tab4:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("Visual Analytics")
 
@@ -601,17 +715,32 @@ with tab3:
 
     if mapping["well"] and mapping["production"] and selected_well == "All":
         st.markdown("---")
-        st.markdown("**Multi-Well Comparison**")
-        grp = df.groupby(mapping["well"])[mapping["production"]].agg(["mean", "max", "min", "count"]).reset_index()
-        grp.columns = [mapping["well"], "Average_Production", "Max_Production", "Min_Production", "Records"]
-        left, right = st.columns([1.2, .8])
-        left.dataframe(grp, use_container_width=True)
-        fig = px.bar(grp, x=mapping["well"], y="Average_Production", title="Average Production by Well", template="plotly_dark")
-        right.plotly_chart(fig, use_container_width=True)
+        st.subheader("Well Performance Ranking")
+        ranking_df = rank_wells(df, mapping["well"], mapping["production"])
+
+        r1, r2, r3 = st.columns(3)
+        with r1:
+            st.markdown(f'<div class="rank-box"><b>Top Well</b><br><br>{ranking_df.iloc[0][mapping["well"]]}<br><span style="color:#d6e4ff;">Avg. Production: {ranking_df.iloc[0]["Average_Production"]:.2f}</span></div>', unsafe_allow_html=True)
+        with r2:
+            if len(ranking_df) > 1:
+                st.markdown(f'<div class="rank-box"><b>Second Rank</b><br><br>{ranking_df.iloc[1][mapping["well"]]}<br><span style="color:#d6e4ff;">Avg. Production: {ranking_df.iloc[1]["Average_Production"]:.2f}</span></div>', unsafe_allow_html=True)
+        with r3:
+            st.markdown(f'<div class="rank-box"><b>Lowest Ranked Well</b><br><br>{ranking_df.iloc[-1][mapping["well"]]}<br><span style="color:#d6e4ff;">Avg. Production: {ranking_df.iloc[-1]["Average_Production"]:.2f}</span></div>', unsafe_allow_html=True)
+
+        st.dataframe(ranking_df, use_container_width=True)
+
+        fig_rank = px.bar(
+            ranking_df,
+            x=mapping["well"],
+            y="Average_Production",
+            title="Average Production Ranking",
+            template="plotly_dark"
+        )
+        st.plotly_chart(fig_rank, use_container_width=True)
 
     if mapping["production"]:
         st.markdown("---")
-        st.markdown("**Production Anomaly Detection**")
+        st.subheader("Production Anomaly Detection")
         anom_mask = detect_outliers_iqr(df[mapping["production"]])
         temp = df.copy()
         temp["_anomaly"] = np.where(anom_mask.fillna(False), "Possible Outlier", "Normal")
@@ -628,9 +757,9 @@ with tab3:
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-with tab4:
+with tab5:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("AI Insights + Decline Analysis")
+    st.subheader("AI Reservoir Insights + Forecast")
 
     if mapping["production"]:
         x_num, dt_values = time_to_numeric(df[mapping["time"]])
@@ -665,6 +794,7 @@ with tab4:
 
             if fc is not None:
                 best_name, future_t, pred, _ = fc
+
                 if dt_values is not None and dt_values.notna().sum() >= 2:
                     step = dt_values.dropna().iloc[-1] - dt_values.dropna().iloc[-2]
                     if pd.isna(step) or step == pd.Timedelta(0):
@@ -683,20 +813,31 @@ with tab4:
     left, right = st.columns(2)
 
     with left:
-        st.markdown("**AI Insights**")
+        st.subheader("AI Reservoir Insights")
         for item in insights:
             st.write("• " + item)
 
     with right:
-        st.markdown("**Recommendations**")
+        st.subheader("Engineering Recommendations")
         for item in recs:
             st.write("• " + item)
 
+    st.markdown("""
+<div class="section-card" style="margin-top:1rem;">
+  <h3 style="margin-top:0;">About This Project</h3>
+  <p class="small-note">
+    This petroleum analytics platform was designed to demonstrate how AI-assisted data interpretation
+    can support production trend evaluation, decline diagnostics, and engineering reporting
+    in a clean dashboard environment suitable for academic and technical presentation.
+  </p>
+</div>
+""", unsafe_allow_html=True)
+
     st.markdown('</div>', unsafe_allow_html=True)
 
-with tab5:
+with tab6:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("Export")
+    st.subheader("Reports")
 
     report = text_report(df, mapping, selected_well, insights, recs, best_decline_name)
 
@@ -713,5 +854,11 @@ with tab5:
         file_name="filtered_petroleum_data.csv",
         mime="text/csv"
     )
+
+    st.markdown("""
+<div class="footer-box">
+    Developed by Abbas • Petroleum Engineering • AI Analytics Platform
+</div>
+""", unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
