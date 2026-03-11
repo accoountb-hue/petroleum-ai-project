@@ -31,7 +31,7 @@ st.markdown("""
 }
 .block-container{
     padding-top:1rem;
-    padding-bottom:1rem;
+    padding-bottom:2rem;
     max-width:1400px;
 }
 [data-testid="stAppViewContainer"]{
@@ -155,6 +155,17 @@ div.stButton > button, div.stDownloadButton > button{
     background:linear-gradient(135deg, #6db2ff, #41d8d0);
     color:#07111f;
 }
+.stSelectbox div[data-baseweb="select"] > div{
+    background-color:white !important;
+    color:black !important;
+}
+.stSelectbox div[data-baseweb="select"] input{
+    color:black !important;
+}
+.stMultiSelect div[data-baseweb="select"] > div{
+    background-color:white !important;
+    color:black !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -249,32 +260,34 @@ def fit_decline_models(time_vals, q_vals):
     t = np.asarray(time_vals, dtype=float)
     q = np.asarray(q_vals, dtype=float)
     mask = np.isfinite(t) & np.isfinite(q) & (q > 0)
-    t = t[mask]; q = q[mask]
+    t = t[mask]
+    q = q[mask]
     if len(q) < 5:
         return None
     q0 = q[0]
 
     lnq = np.log(q)
-    exp_model = LinearRegression().fit(t.reshape(-1,1), lnq)
+    exp_model = LinearRegression().fit(t.reshape(-1, 1), lnq)
     D_exp = max(1e-9, -float(exp_model.coef_[0]))
     qhat_exp = q0 * np.exp(-D_exp * (t - t[0]))
-    rmse_exp = float(np.sqrt(np.mean((q - qhat_exp)**2)))
+    rmse_exp = float(np.sqrt(np.mean((q - qhat_exp) ** 2)))
 
     y_h = (q0 / q) - 1.0
-    harm_model = LinearRegression().fit(t.reshape(-1,1), y_h)
+    harm_model = LinearRegression().fit(t.reshape(-1, 1), y_h)
     D_harm = max(1e-9, float(harm_model.coef_[0]))
     qhat_harm = q0 / (1 + D_harm * (t - t[0]))
-    rmse_harm = float(np.sqrt(np.mean((q - qhat_harm)**2)))
+    rmse_harm = float(np.sqrt(np.mean((q - qhat_harm) ** 2)))
 
     best = None
     for b in np.arange(0.1, 1.6, 0.1):
-        y = (q0 / q)**b - 1.0
-        model = LinearRegression().fit(t.reshape(-1,1), y)
+        y = (q0 / q) ** b - 1.0
+        model = LinearRegression().fit(t.reshape(-1, 1), y)
         D = max(1e-9, float(model.coef_[0]) / b)
         qhat = q0 / np.power(1 + b * D * (t - t[0]), 1.0 / b)
-        rmse = float(np.sqrt(np.mean((q - qhat)**2)))
+        rmse = float(np.sqrt(np.mean((q - qhat) ** 2)))
         if best is None or rmse < best["rmse"]:
             best = {"b": float(b), "D": float(D), "qhat": qhat, "rmse": rmse}
+
     results = {
         "Exponential": {"rmse": rmse_exp, "qhat": qhat_exp, "D": D_exp},
         "Harmonic": {"rmse": rmse_harm, "qhat": qhat_harm, "D": D_harm},
@@ -291,7 +304,8 @@ def forecast_from_decline(time_vals, q_vals, periods=12):
     t = np.asarray(time_vals, dtype=float)
     q = np.asarray(q_vals, dtype=float)
     mask = np.isfinite(t) & np.isfinite(q) & (q > 0)
-    t = t[mask]; q = q[mask]
+    t = t[mask]
+    q = q[mask]
     q0 = q[0]
     future_t = np.arange(t[-1] + 1, t[-1] + periods + 1, dtype=float)
 
@@ -302,8 +316,10 @@ def forecast_from_decline(time_vals, q_vals, periods=12):
         D = results["Harmonic"]["D"]
         pred = q0 / (1 + D * (future_t - t[0]))
     else:
-        b = results["Hyperbolic"]["b"]; D = results["Hyperbolic"]["D"]
+        b = results["Hyperbolic"]["b"]
+        D = results["Hyperbolic"]["D"]
         pred = q0 / np.power(1 + b * D * (future_t - t[0]), 1.0 / b)
+
     return best_name, future_t, pred, results
 
 def ai_summary(df, mapping):
@@ -312,10 +328,11 @@ def ai_summary(df, mapping):
     press_col = mapping.get("pressure")
     wc_col = mapping.get("water_cut")
     gor_col = mapping.get("gor")
+
     if prod_col:
         prod = pd.to_numeric(df[prod_col], errors="coerce").dropna()
         if len(prod) >= 5:
-            slope = float(LinearRegression().fit(np.arange(len(prod)).reshape(-1,1), prod.values).coef_[0])
+            slope = float(LinearRegression().fit(np.arange(len(prod)).reshape(-1, 1), prod.values).coef_[0])
             if slope < 0:
                 insights.append(f"Production is declining by about {abs(slope):.2f} units per record.")
                 recs.append("Compare decline with expected reservoir depletion behavior.")
@@ -325,35 +342,40 @@ def ai_summary(df, mapping):
             if n_out:
                 insights.append(f"{n_out} possible production outlier(s) detected.")
                 recs.append("Validate unusual production points before engineering interpretation.")
+
     if press_col:
         p = pd.to_numeric(df[press_col], errors="coerce").dropna()
         if len(p) >= 5:
-            slope = float(LinearRegression().fit(np.arange(len(p)).reshape(-1,1), p.values).coef_[0])
+            slope = float(LinearRegression().fit(np.arange(len(p)).reshape(-1, 1), p.values).coef_[0])
             if slope < 0:
                 insights.append(f"Pressure is declining by about {abs(slope):.2f} units per record.")
                 recs.append("Assess pressure maintenance need or operational optimization.")
+
     if wc_col:
         wc = pd.to_numeric(df[wc_col], errors="coerce").dropna()
         if len(wc) >= 5:
-            slope = float(LinearRegression().fit(np.arange(len(wc)).reshape(-1,1), wc.values).coef_[0])
+            slope = float(LinearRegression().fit(np.arange(len(wc)).reshape(-1, 1), wc.values).coef_[0])
             if slope > 0:
                 insights.append(f"Water cut is increasing by {slope:.4f} per record.")
                 recs.append("Rising water cut may indicate water breakthrough or coning effects.")
+
     if gor_col:
         gor = pd.to_numeric(df[gor_col], errors="coerce").dropna()
         if len(gor) >= 5:
-            slope = float(LinearRegression().fit(np.arange(len(gor)).reshape(-1,1), gor.values).coef_[0])
+            slope = float(LinearRegression().fit(np.arange(len(gor)).reshape(-1, 1), gor.values).coef_[0])
             if slope > 0:
                 insights.append(f"GOR is increasing by {slope:.2f} units per record.")
                 recs.append("Review gas behavior and depletion response.")
+
     if not insights:
         insights.append("Not enough mapped data for strong AI-style interpretation yet.")
     if not recs:
         recs.append("Upload richer time-series data or use the demo dataset.")
+
     return insights, recs
 
 def text_report(df, mapping, selected_well, insights, recs, best_decline_name=None):
-    lines = ["Petroleum Data Analysis with AI - Engineering Report", "="*55]
+    lines = ["Petroleum Data Analysis with AI - Engineering Report", "=" * 55]
     lines.append(f"Rows analyzed: {len(df)}")
     if selected_well is not None:
         lines.append(f"Selected well: {selected_well}")
@@ -377,28 +399,32 @@ def text_report(df, mapping, selected_well, insights, recs, best_decline_name=No
 # ---------------- Header ----------------
 st.markdown("""
 <div class="hero">
-  <div class="badge">Version 4 • Animated Professional Dashboard</div>
+  <div class="badge">Version 4 • Professional Petroleum Dashboard</div>
   <h1>Petroleum Data Analysis with AI</h1>
   <p>Upload petroleum datasets, analyze multi-well behavior, run decline analysis, detect anomalies, and generate AI-style engineering insights.</p>
 </div>
 """, unsafe_allow_html=True)
-st.markdown('<div class="notice">This platform helps users upload structured petroleum datasets, visualize production and pressure trends, compare wells, detect anomalies, run decline analysis, and export engineering reports.</div>', unsafe_allow_html=True)
+
+st.markdown(
+    '<div class="notice">This platform helps users upload structured petroleum datasets, visualize production and pressure trends, compare wells, detect anomalies, run decline analysis, and export engineering reports.</div>',
+    unsafe_allow_html=True
+)
 
 st.markdown("""
 <div class="section-card">
-  <h3>What this platform does</h3>
+  <h3>How to Use This Platform</h3>
   <div class="info-grid">
     <div class="info-box">
-      <h4>Upload and Read Data</h4>
-      <p>Supports CSV, Excel, TXT, and JSON structured petroleum datasets.</p>
+      <h4>1. Upload Data</h4>
+      <p>Upload a structured petroleum dataset in CSV, Excel, TXT, or JSON format, or use the built-in demo dataset.</p>
     </div>
     <div class="info-box">
-      <h4>Analyze Wells</h4>
-      <p>Compare production, pressure, water cut, and GOR behavior across wells.</p>
+      <h4>2. Map Engineering Columns</h4>
+      <p>Select the time, production, pressure, water cut, and GOR columns to guide the analysis correctly.</p>
     </div>
     <div class="info-box">
-      <h4>Generate Insights</h4>
-      <p>Provides AI-style engineering observations, decline analysis, and downloadable reports.</p>
+      <h4>3. Analyze and Interpret</h4>
+      <p>Review charts, compare wells, detect anomalies, evaluate decline behavior, and export the engineering report.</p>
     </div>
   </div>
 </div>
@@ -409,21 +435,33 @@ with st.sidebar:
     st.header("Workspace")
     source = st.radio("Choose data source", ["Upload your file", "Use demo dataset"])
     uploaded = None
+
     if source == "Upload your file":
         uploaded = st.file_uploader("Upload structured dataset", type=["csv", "xlsx", "xls", "txt", "json"])
         st.caption("Supported: CSV, Excel, TXT, JSON")
     else:
-        st.success("Demo dataset selected.")
+        st.info("Demo petroleum dataset is active.")
+
     st.markdown("---")
-    st.subheader("Features")
-    st.write("• Auto column detection")
-    st.write("• Multi-well support")
-    st.write("• Charts: Production / Pressure / Water Cut / GOR")
-    st.write("• Anomaly detection")
-    st.write("• Decline Curve Analysis")
-    st.write("• Forecasting")
-    st.write("• AI engineering insights")
-    st.write("• Report export")
+    st.subheader("Petroleum Engineering Scope")
+    st.markdown("""
+This platform is designed to support petroleum engineering data analysis through:
+
+- Well production trend analysis  
+- Reservoir pressure behavior interpretation  
+- Water cut monitoring  
+- GOR performance evaluation  
+- Decline curve analysis  
+- Production forecasting  
+- Engineering report generation  
+""")
+
+    st.markdown("---")
+    st.subheader("Platform Purpose")
+    st.write(
+        "The goal of this system is to help students and engineers upload structured well data, "
+        "visualize performance, detect abnormal behavior, and generate AI-style engineering insights."
+    )
 
 # ---------------- Load Data ----------------
 if source == "Use demo dataset":
@@ -472,17 +510,21 @@ with tab2:
     cols = list(raw_df.columns)
     num_cols = [c for c in raw_df.columns if pd.api.types.is_numeric_dtype(raw_df[c])]
     left, mid, right = st.columns(3)
+
     with left:
         time_col = st.selectbox("Time / Date", cols, index=cols.index(det["time"]) if det["time"] in cols else 0)
         well_opts = ["None"] + cols
         well_col = st.selectbox("Well column", well_opts, index=well_opts.index(det["well"]) if det["well"] in well_opts else 0)
+
     with mid:
         prod_opts = ["None"] + num_cols
         prod_col = st.selectbox("Production", prod_opts, index=prod_opts.index(det["production"]) if det["production"] in prod_opts else 0)
         press_col = st.selectbox("Pressure", prod_opts, index=prod_opts.index(det["pressure"]) if det["pressure"] in prod_opts else 0)
+
     with right:
         wc_col = st.selectbox("Water Cut", prod_opts, index=prod_opts.index(det["water_cut"]) if det["water_cut"] in prod_opts else 0)
         gor_col = st.selectbox("GOR", prod_opts, index=prod_opts.index(det["gor"]) if det["gor"] in prod_opts else 0)
+
     mapping = {
         "time": time_col,
         "well": None if well_col == "None" else well_col,
@@ -491,6 +533,7 @@ with tab2:
         "water_cut": None if wc_col == "None" else wc_col,
         "gor": None if gor_col == "None" else gor_col,
     }
+
     st.success("Column mapping updated.")
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -509,6 +552,7 @@ except NameError:
 
 df = raw_df.copy()
 selected_well = None
+
 if mapping["well"]:
     wells = ["All"] + sorted(df[mapping["well"]].dropna().astype(str).unique().tolist())
     selected_well = st.selectbox("Filter by well", wells, key="well_filter")
@@ -522,26 +566,51 @@ with tab3:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("Visual Analytics")
     a, b = st.columns(2)
+
     if mapping["production"]:
-        fig = px.line(df, x=mapping["time"], y=mapping["production"],
-                      color=mapping["well"] if mapping["well"] and selected_well == "All" else None,
-                      title="Production vs Time", template="plotly_dark")
+        fig = px.line(
+            df,
+            x=mapping["time"],
+            y=mapping["production"],
+            color=mapping["well"] if mapping["well"] and selected_well == "All" else None,
+            title="Production vs Time",
+            template="plotly_dark"
+        )
         a.plotly_chart(fig, use_container_width=True)
+
     if mapping["pressure"]:
-        fig = px.line(df, x=mapping["time"], y=mapping["pressure"],
-                      color=mapping["well"] if mapping["well"] and selected_well == "All" else None,
-                      title="Pressure vs Time", template="plotly_dark")
+        fig = px.line(
+            df,
+            x=mapping["time"],
+            y=mapping["pressure"],
+            color=mapping["well"] if mapping["well"] and selected_well == "All" else None,
+            title="Pressure vs Time",
+            template="plotly_dark"
+        )
         b.plotly_chart(fig, use_container_width=True)
+
     c, d = st.columns(2)
+
     if mapping["water_cut"]:
-        fig = px.line(df, x=mapping["time"], y=mapping["water_cut"],
-                      color=mapping["well"] if mapping["well"] and selected_well == "All" else None,
-                      title="Water Cut vs Time", template="plotly_dark")
+        fig = px.line(
+            df,
+            x=mapping["time"],
+            y=mapping["water_cut"],
+            color=mapping["well"] if mapping["well"] and selected_well == "All" else None,
+            title="Water Cut vs Time",
+            template="plotly_dark"
+        )
         c.plotly_chart(fig, use_container_width=True)
+
     if mapping["gor"]:
-        fig = px.line(df, x=mapping["time"], y=mapping["gor"],
-                      color=mapping["well"] if mapping["well"] and selected_well == "All" else None,
-                      title="GOR vs Time", template="plotly_dark")
+        fig = px.line(
+            df,
+            x=mapping["time"],
+            y=mapping["gor"],
+            color=mapping["well"] if mapping["well"] and selected_well == "All" else None,
+            title="GOR vs Time",
+            template="plotly_dark"
+        )
         d.plotly_chart(fig, use_container_width=True)
 
     if mapping["well"] and mapping["production"] and selected_well == "All":
@@ -560,32 +629,44 @@ with tab3:
         anom_mask = detect_outliers_iqr(df[mapping["production"]])
         temp = df.copy()
         temp["_anomaly"] = np.where(anom_mask.fillna(False), "Possible Outlier", "Normal")
-        fig = px.scatter(temp, x=mapping["time"], y=mapping["production"], color="_anomaly",
-                         title="Production Outlier Screening", template="plotly_dark",
-                         color_discrete_map={"Normal":"#3de0d0","Possible Outlier":"#ff6b6b"})
+        fig = px.scatter(
+            temp,
+            x=mapping["time"],
+            y=mapping["production"],
+            color="_anomaly",
+            title="Production Outlier Screening",
+            template="plotly_dark",
+            color_discrete_map={"Normal":"#3de0d0","Possible Outlier":"#ff6b6b"}
+        )
         st.plotly_chart(fig, use_container_width=True)
+
     st.markdown('</div>', unsafe_allow_html=True)
 
 with tab4:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("AI Insights + Decline Analysis")
+
     if mapping["production"]:
         x_num, dt_values = time_to_numeric(df[mapping["time"]])
         q = pd.to_numeric(df[mapping["production"]], errors="coerce").values
         fit = fit_decline_models(x_num, q)
+
         if fit is None:
             st.warning("Not enough valid production data for decline analysis.")
         else:
             best_decline_name, results = fit
             st.success(f"Best decline model: {best_decline_name}")
+
             hist_mask = np.isfinite(x_num) & np.isfinite(q) & (q > 0)
             time_hist = df.loc[hist_mask, mapping["time"]]
             q_hist = q[hist_mask]
 
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=time_hist, y=q_hist, mode="lines+markers", name="Actual"))
+
             for model_name, info in results.items():
                 fig.add_trace(go.Scatter(x=time_hist, y=info["qhat"], mode="lines", name=f"{model_name} Fit"))
+
             fig.update_layout(template="plotly_dark", title="Decline Model Comparison")
             st.plotly_chart(fig, use_container_width=True)
 
@@ -597,8 +678,10 @@ with tab4:
 
             horizon = st.slider("Forecast periods", 6, 60, 18, 6)
             fc = forecast_from_decline(x_num, q, periods=horizon)
+
             if fc is not None:
                 best_name, future_t, pred, _ = fc
+
                 if dt_values is not None and dt_values.notna().sum() >= 2:
                     step = dt_values.dropna().iloc[-1] - dt_values.dropna().iloc[-2]
                     if pd.isna(step) or step == pd.Timedelta(0):
@@ -606,6 +689,7 @@ with tab4:
                     future_time = [dt_values.dropna().iloc[-1] + step * (i + 1) for i in range(horizon)]
                 else:
                     future_time = future_t
+
                 fig2 = go.Figure()
                 fig2.add_trace(go.Scatter(x=time_hist, y=q_hist, mode="lines+markers", name="Historical"))
                 fig2.add_trace(go.Scatter(x=future_time, y=pred, mode="lines+markers", name=f"{best_name} Forecast"))
@@ -614,20 +698,33 @@ with tab4:
 
     insights, recs = ai_summary(df, mapping)
     left, right = st.columns(2)
+
     with left:
         st.markdown("**AI Insights**")
         for item in insights:
             st.write("• " + item)
+
     with right:
         st.markdown("**Recommendations**")
         for item in recs:
             st.write("• " + item)
+
     st.markdown('</div>', unsafe_allow_html=True)
 
 with tab5:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("Export")
     report = text_report(df, mapping, selected_well, insights, recs, best_decline_name)
-    st.download_button("Download engineering report (.txt)", data=report.encode("utf-8"), file_name="petroleum_ai_report.txt", mime="text/plain")
-    st.download_button("Download current filtered data (.csv)", data=df.to_csv(index=False).encode("utf-8"), file_name="filtered_petroleum_data.csv", mime="text/csv")
+    st.download_button(
+        "Download engineering report (.txt)",
+        data=report.encode("utf-8"),
+        file_name="petroleum_ai_report.txt",
+        mime="text/plain"
+    )
+    st.download_button(
+        "Download current filtered data (.csv)",
+        data=df.to_csv(index=False).encode("utf-8"),
+        file_name="filtered_petroleum_data.csv",
+        mime="text/csv"
+    )
     st.markdown('</div>', unsafe_allow_html=True)
