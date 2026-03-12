@@ -25,20 +25,25 @@ st.markdown("""
     --soft:#b8c7e6;
     --border:rgba(255,255,255,.10);
 }
+
+/* Darker background for readability */
 [data-testid="stAppViewContainer"]{
     background:
-      linear-gradient(rgba(7,16,29,.72), rgba(7,16,29,.82)),
+      linear-gradient(rgba(5,12,24,.84), rgba(5,12,24,.90)),
       url("https://images.unsplash.com/photo-1513828583688-c52646db42da?q=80&w=1800&auto=format&fit=crop");
     background-size: cover;
     background-position: center;
     background-attachment: fixed;
 }
+
 .block-container{
     max-width: 1380px;
     padding-top: 1.2rem;
     padding-bottom: 2.5rem;
 }
+
 html, body, [class*="css"] { color: var(--text); }
+
 .main-title{
     font-size: 2.9rem;
     font-weight: 800;
@@ -52,11 +57,11 @@ html, body, [class*="css"] { color: var(--text); }
     line-height: 1.8;
 }
 .hero{
-    background: linear-gradient(135deg, rgba(16,27,51,.90), rgba(12,19,36,.88));
+    background: linear-gradient(135deg, rgba(10,18,35,.92), rgba(12,19,36,.90));
     border: 1px solid var(--border);
     border-radius: 26px;
     padding: 1.6rem;
-    box-shadow: 0 18px 42px rgba(0,0,0,.20);
+    box-shadow: 0 18px 42px rgba(0,0,0,.24);
 }
 .badge{
     display:inline-block;
@@ -68,16 +73,22 @@ html, body, [class*="css"] { color: var(--text); }
     border:1px solid rgba(77,163,255,.28);
     margin-bottom:.8rem;
 }
+
+/* Stronger readable cards */
 .section-card{
     margin-top: 1rem;
-    background: linear-gradient(180deg, rgba(15,27,51,.92), rgba(17,29,52,.90));
-    border: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(10,18,35,.88), rgba(12,22,40,.86)) !important;
+    border: 1px solid rgba(255,255,255,.12);
     border-radius: 22px;
     padding: 1.15rem;
-    box-shadow: 0 12px 34px rgba(0,0,0,.14);
+    box-shadow: 0 12px 34px rgba(0,0,0,.18);
+    backdrop-filter: blur(6px);
+}
+.metric-card, .info-box, .ai-box, .rank-box, .footer-box{
+    background: linear-gradient(180deg, rgba(12,22,40,.92), rgba(14,24,44,.92)) !important;
+    backdrop-filter: blur(6px);
 }
 .metric-card{
-    background: linear-gradient(180deg, rgba(24,39,66,.96), rgba(17,29,52,.96));
     border: 1px solid var(--border);
     border-radius: 18px;
     padding: 1rem;
@@ -92,13 +103,13 @@ html, body, [class*="css"] { color: var(--text); }
     font-weight: 800;
     margin-top: .25rem;
 }
+
 .info-grid{
     display:grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 14px;
 }
 .info-box{
-    background: linear-gradient(180deg, rgba(24,39,66,.96), rgba(17,29,52,.96));
     border: 1px solid var(--border);
     border-radius: 18px;
     padding: 1rem;
@@ -113,13 +124,11 @@ html, body, [class*="css"] { color: var(--text); }
     line-height:1.75;
 }
 .ai-box{
-    background: linear-gradient(180deg, rgba(26,45,76,.98), rgba(17,29,52,.96));
     border:1px solid rgba(77,163,255,.25);
     border-radius:18px;
     padding:1rem;
 }
 .rank-box{
-    background: linear-gradient(180deg, rgba(31,53,89,.96), rgba(17,29,52,.96));
     border:1px solid var(--border);
     border-radius:18px;
     padding:1rem;
@@ -130,9 +139,18 @@ html, body, [class*="css"] { color: var(--text); }
     color:#dbe6fb;
     padding:1rem;
     border-radius:18px;
-    background: rgba(12,19,36,.72);
     border:1px solid rgba(255,255,255,.08);
 }
+
+.ai-insight-box{
+    background: rgba(5, 10, 20, 0.68);
+    border: 1px solid rgba(255,255,255,.10);
+    border-radius: 18px;
+    padding: 18px;
+    backdrop-filter: blur(8px);
+}
+
+/* Tabs */
 .stTabs [data-baseweb="tab-list"]{ gap:8px; }
 .stTabs [data-baseweb="tab"]{
     background:#16233d;
@@ -145,6 +163,8 @@ html, body, [class*="css"] { color: var(--text); }
     background: linear-gradient(135deg, rgba(77,163,255,.23), rgba(45,212,191,.16)) !important;
     border-color: rgba(77,163,255,.35) !important;
 }
+
+/* Buttons */
 div.stButton > button, div.stDownloadButton > button{
     border:none;
     border-radius:14px;
@@ -153,12 +173,27 @@ div.stButton > button, div.stDownloadButton > button{
     background: linear-gradient(135deg, #4da3ff, #2dd4bf);
     color:#07111f;
 }
+
+/* Inputs */
 .stSelectbox div[data-baseweb="select"] > div{
     background:#ffffff !important;
     color:#111827 !important;
 }
 .stSelectbox svg{ fill:#111827 !important; }
 div[role="radiogroup"] label{ color:white !important; }
+
+/* Text readability */
+div[data-testid="stMarkdownContainer"] p,
+div[data-testid="stMarkdownContainer"] li,
+div[data-testid="stMarkdownContainer"] span,
+h1, h2, h3, h4, h5, h6,
+label {
+    color: #ffffff !important;
+}
+p, li {
+    color: #f5f7ff !important;
+}
+
 @media (max-width: 900px){
     .info-grid{ grid-template-columns: 1fr; }
     .main-title{ font-size: 2.1rem; }
@@ -180,7 +215,7 @@ SYNONYMS = {
 # ---------- Helpers ----------
 def demo_dataset():
     np.random.seed(42)
-    days = np.arange(1, 91)
+    days = np.arange(1, 121)
     wells = ["Well_A", "Well_B", "Well_C", "Well_D"]
     fields = {
         "Well_A": "North_Field",
@@ -197,10 +232,10 @@ def demo_dataset():
         gor = 420 + i * 25
 
         for d in days:
-            q = base_q * np.exp(-0.013 * d) + np.random.normal(0, 18)
-            p = base_p - 5.8 * d + np.random.normal(0, 7)
+            q = base_q * np.exp(-0.011 * d) + np.random.normal(0, 18)
+            p = base_p - 4.9 * d + np.random.normal(0, 7)
             water = wc + 0.0018 * d + np.random.normal(0, 0.0025)
-            gas = gor + 1.7 * d + np.random.normal(0, 5)
+            gas = gor + 1.85 * d + np.random.normal(0, 5)
 
             rows.append([
                 fields[well],
@@ -213,15 +248,15 @@ def demo_dataset():
             ])
 
     df = pd.DataFrame(rows, columns=["Field", "Well", "Day", "Production", "Pressure", "WaterCut", "GOR"])
-    df.loc[25, "Production"] = df.loc[25, "Production"] * 1.7
-    df.loc[170, "Production"] = df.loc[170, "Production"] * 0.4
+    df.loc[25, "Production"] *= 1.7
+    df.loc[170, "Production"] *= 0.4
+    df.loc[300, "Pressure"] *= 0.88
     return df
 
 def load_uploaded_file(uploaded_file):
     suffix = Path(uploaded_file.name).suffix.lower()
     if suffix not in SUPPORTED:
         raise ValueError(f"Unsupported file type: {suffix}")
-
     if suffix == ".csv":
         return pd.read_csv(uploaded_file)
     if suffix in [".xlsx", ".xls"]:
@@ -234,7 +269,6 @@ def load_uploaded_file(uploaded_file):
             return pd.read_csv(io.StringIO(content), sep="\t")
     if suffix == ".json":
         return pd.read_json(uploaded_file)
-
     raise ValueError("Unable to read file")
 
 def normalize_name(name: str) -> str:
@@ -409,7 +443,7 @@ def predictive_ai(df, mapping):
 
     return results
 
-# ---------- AI ----------
+# ---------- AI Core ----------
 def calculate_risk_scores(df, mapping):
     prod_col = mapping.get("production")
     press_col = mapping.get("pressure")
@@ -487,6 +521,114 @@ def classify_well(df, mapping, risks):
         return "Declining Well"
     return "Stable / Improving Well"
 
+# ---------- Phase 4: Production Engineering ----------
+def calculate_production_efficiency_score(df, mapping):
+    prod_col = mapping.get("production")
+    wc_col = mapping.get("water_cut")
+    press_col = mapping.get("pressure")
+    gor_col = mapping.get("gor")
+
+    if not prod_col:
+        return 0.0
+
+    prod = pd.to_numeric(df[prod_col], errors="coerce").dropna()
+    if len(prod) < 5:
+        return 0.0
+
+    current_prod = prod.iloc[-1]
+    peak_prod = prod.max()
+    production_factor = (current_prod / peak_prod) * 100 if peak_prod > 0 else 0
+
+    wc_penalty = 0
+    if wc_col:
+        wc = pd.to_numeric(df[wc_col], errors="coerce").dropna()
+        if len(wc) >= 5:
+            wc_penalty = min(wc.iloc[-1] * 35, 35)
+
+    press_penalty = 0
+    if press_col:
+        press = pd.to_numeric(df[press_col], errors="coerce").dropna()
+        if len(press) >= 5 and press.iloc[0] > 0:
+            drop_pct = ((press.iloc[0] - press.iloc[-1]) / press.iloc[0]) * 100
+            press_penalty = min(max(drop_pct * 0.6, 0), 25)
+
+    gor_penalty = 0
+    if gor_col:
+        gor = pd.to_numeric(df[gor_col], errors="coerce").dropna()
+        if len(gor) >= 5:
+            gor_increase = max(gor.iloc[-1] - gor.iloc[0], 0)
+            gor_penalty = min(gor_increase * 0.05, 15)
+
+    score = production_factor - wc_penalty - press_penalty - gor_penalty
+    return round(max(min(score, 100), 0), 1)
+
+def detect_underperforming_well(df, mapping):
+    well_col = mapping.get("well")
+    prod_col = mapping.get("production")
+    if not well_col or not prod_col:
+        return None, None
+
+    ranking = rank_wells(df, well_col, prod_col)
+    if len(ranking) == 0:
+        return None, None
+
+    worst_well = ranking.iloc[-1][well_col]
+    worst_avg = ranking.iloc[-1]["Average_Production"]
+    return worst_well, worst_avg
+
+def artificial_lift_suggestions(df, mapping, risks):
+    suggestions = []
+
+    prod_col = mapping.get("production")
+    press_col = mapping.get("pressure")
+    wc_col = mapping.get("water_cut")
+
+    prod = pd.to_numeric(df[prod_col], errors="coerce").dropna() if prod_col else pd.Series(dtype=float)
+    press = pd.to_numeric(df[press_col], errors="coerce").dropna() if press_col else pd.Series(dtype=float)
+    wc = pd.to_numeric(df[wc_col], errors="coerce").dropna() if wc_col else pd.Series(dtype=float)
+
+    if len(prod) >= 5 and len(press) >= 5:
+        if prod.iloc[-1] < prod.iloc[0] and press.iloc[-1] < press.iloc[0]:
+            suggestions.append("Consider artificial lift optimization to sustain production under declining pressure.")
+
+    if len(wc) >= 5 and wc.iloc[-1] > 0.35:
+        suggestions.append("High water cut may reduce lift efficiency; review water handling and lift design.")
+
+    if not suggestions:
+        suggestions.append("Current data does not strongly indicate artificial lift intervention, but continue monitoring.")
+
+    return suggestions
+
+def production_optimization_recommendations(df, mapping, risks):
+    recs = []
+
+    if risks["water_risk"] > 40:
+        recs.append("Investigate water breakthrough and evaluate water shutoff or coning control options.")
+
+    if risks["gas_risk"] > 40:
+        recs.append("Review gas handling, flowing conditions, and gas breakthrough behavior.")
+
+    if risks["depletion_risk"] > 40:
+        recs.append("Assess pressure support strategy and consider reservoir management actions.")
+
+    if risks["anomaly_risk"] > 30:
+        recs.append("Validate sensor quality and investigate operational disturbances behind abnormal production points.")
+
+    # operational / choke-style suggestions
+    prod_col = mapping.get("production")
+    press_col = mapping.get("pressure")
+    if prod_col and press_col:
+        prod = pd.to_numeric(df[prod_col], errors="coerce").dropna()
+        press = pd.to_numeric(df[press_col], errors="coerce").dropna()
+        if len(prod) >= 5 and len(press) >= 5:
+            if prod.iloc[-1] < prod.iloc[0] and abs(press.iloc[-1] - press.iloc[0]) < 10:
+                recs.append("Production decline with near-stable pressure may indicate choke, tubing, or near-wellbore flow restriction.")
+
+    if not recs:
+        recs.append("Maintain current operating conditions and continue surveillance for performance changes.")
+
+    return recs
+
 def ai_summary(df, mapping):
     insights, recs = [], []
 
@@ -508,6 +650,7 @@ def ai_summary(df, mapping):
     risks = calculate_risk_scores(df, mapping)
     health_score = calculate_reservoir_health_score(df, mapping, risks)
     well_class = classify_well(df, mapping, risks)
+    efficiency_score = calculate_production_efficiency_score(df, mapping)
 
     prod_pct = 0
     wc_change = 0
@@ -580,29 +723,38 @@ def ai_summary(df, mapping):
         if prod_pct < 0 and len(press_clean) >= 5 and (press_clean.iloc[-1] < press_clean.iloc[0]):
             insights.append("Smart AI logic: production decline is likely depletion-driven.")
         if prod_pct < 0 and len(press_clean) >= 5 and abs(press_clean.iloc[-1] - press_clean.iloc[0]) < 10:
-            insights.append("Smart AI logic: production decline with nearly stable pressure may suggest operational or formation-related issues.")
+            insights.append("Smart AI logic: production decline with nearly stable pressure may suggest operational or flow restriction issues.")
 
     insights.append(f"AI well classification: {well_class}.")
     insights.append(f"Reservoir health score: {health_score}/100.")
+    insights.append(f"Production efficiency score: {efficiency_score}/100.")
     insights.append(
         f"Risk scores → Water: {risks['water_risk']}, Gas: {risks['gas_risk']}, Depletion: {risks['depletion_risk']}, Data quality: {risks['anomaly_risk']}."
     )
 
-    if not recs:
-        recs.append("Continue monitoring with more historical data for stronger AI interpretation.")
+    prod_opt = production_optimization_recommendations(df, mapping, risks)
+    for item in prod_opt:
+        if item not in recs:
+            recs.append(item)
 
-    return insights, recs, well_class, risks, health_score
+    lift_recs = artificial_lift_suggestions(df, mapping, risks)
 
-# ---------- PDF / Report ----------
-def generate_ai_report_text(df, mapping, selected_well, insights, recs, best_decline_name, well_class, risks, health_score, decline_params_text):
+    return insights, recs, well_class, risks, health_score, efficiency_score, lift_recs
+
+# ---------- Report ----------
+def generate_ai_report_text(
+    df, mapping, selected_well, insights, recs, best_decline_name, well_class,
+    risks, health_score, decline_params_text, efficiency_score, lift_recs
+):
     lines = []
-    lines.append("AI PETROLEUM DATA SCIENTIST REPORT")
-    lines.append("=" * 60)
+    lines.append("AI PETROLEUM PRODUCTION ENGINEERING REPORT")
+    lines.append("=" * 64)
     lines.append(f"Rows analyzed: {len(df)}")
     if selected_well is not None:
         lines.append(f"Selected well: {selected_well}")
     lines.append(f"AI well classification: {well_class}")
     lines.append(f"Reservoir health score: {health_score}/100")
+    lines.append(f"Production efficiency score: {efficiency_score}/100")
     if best_decline_name:
         lines.append(f"Best decline model: {best_decline_name}")
     if decline_params_text:
@@ -627,26 +779,36 @@ def generate_ai_report_text(df, mapping, selected_well, insights, recs, best_dec
         lines.append(f"* {item}")
 
     lines.append("")
-    lines.append("Recommended Actions:")
+    lines.append("Production Optimization Recommendations:")
     for item in recs:
+        lines.append(f"* {item}")
+
+    lines.append("")
+    lines.append("Artificial Lift Suggestions:")
+    for item in lift_recs:
         lines.append(f"* {item}")
 
     return "\n".join(lines)
 
-def create_pdf_report(well_class, health_score, risks, insights, recs, best_decline_name, decline_params_text):
+def create_pdf_report(
+    well_class, health_score, efficiency_score, risks, insights, recs,
+    best_decline_name, decline_params_text, lift_recs
+):
     temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     c = canvas.Canvas(temp.name, pagesize=letter)
     width, height = letter
 
     y = height - 50
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(50, y, "Petroleum AI Engineering Report")
+    c.drawString(50, y, "Petroleum AI Production Engineering Report")
 
     y -= 30
     c.setFont("Helvetica", 11)
     c.drawString(50, y, f"AI Well Classification: {well_class}")
     y -= 18
     c.drawString(50, y, f"Reservoir Health Score: {health_score}/100")
+    y -= 18
+    c.drawString(50, y, f"Production Efficiency Score: {efficiency_score}/100")
     y -= 18
     c.drawString(50, y, f"Best Decline Model: {best_decline_name if best_decline_name else '-'}")
     y -= 18
@@ -664,13 +826,13 @@ def create_pdf_report(well_class, health_score, risks, insights, recs, best_decl
     c.drawString(60, y, f"Depletion Risk: {risks['depletion_risk']}")
     y -= 16
     c.drawString(60, y, f"Data Quality Risk: {risks['anomaly_risk']}")
-    y -= 24
+    y -= 22
 
     c.setFont("Helvetica-Bold", 12)
     c.drawString(50, y, "AI Insights")
     y -= 18
     c.setFont("Helvetica", 10)
-    for item in insights[:8]:
+    for item in insights[:7]:
         c.drawString(60, y, f"- {item[:95]}")
         y -= 15
         if y < 80:
@@ -678,12 +840,25 @@ def create_pdf_report(well_class, health_score, risks, insights, recs, best_decl
             y = height - 50
             c.setFont("Helvetica", 10)
 
-    y -= 10
+    y -= 8
     c.setFont("Helvetica-Bold", 12)
-    c.drawString(50, y, "Recommended Actions")
+    c.drawString(50, y, "Recommendations")
     y -= 18
     c.setFont("Helvetica", 10)
-    for item in recs[:8]:
+    for item in recs[:6]:
+        c.drawString(60, y, f"- {item[:95]}")
+        y -= 15
+        if y < 80:
+            c.showPage()
+            y = height - 50
+            c.setFont("Helvetica", 10)
+
+    y -= 8
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(50, y, "Artificial Lift Suggestions")
+    y -= 18
+    c.setFont("Helvetica", 10)
+    for item in lift_recs[:5]:
         c.drawString(60, y, f"- {item[:95]}")
         y -= 15
         if y < 80:
@@ -697,31 +872,32 @@ def create_pdf_report(well_class, health_score, risks, insights, recs, best_decl
 # ---------- Header ----------
 st.markdown("""
 <div class="hero">
-  <div class="badge">Version 11 • Phase 3 Complete</div>
+  <div class="badge">Version 12 • Phase 4 Complete — AI Production Engineering</div>
   <div class="main-title">Petroleum Data Analysis with AI</div>
   <div class="sub-title">
-    Full AI petroleum analytics with smart logic, deeper engineering interpretation,
-    duplicate-safe mapping, risk scoring, reservoir health, predictive diagnostics,
-    field-level analysis, executive summary, and PDF report export.
+    A production-engineering focused petroleum AI platform with stronger readability,
+    executive summary, risk scoring, field and well analytics, production efficiency,
+    optimization recommendations, artificial lift suggestions, predictive diagnostics,
+    and PDF report export.
   </div>
 </div>
 """, unsafe_allow_html=True)
 
 st.markdown("""
 <div class="section-card">
-  <h3 style="margin-top:0;">Phase 3 Additions</h3>
+  <h3 style="margin-top:0;">Phase 4 Additions</h3>
   <div class="info-grid">
     <div class="info-box">
-      <h4>Executive Summary</h4>
-      <p>Instant high-level view of the well condition, reservoir health, and dominant risk.</p>
+      <h4>Production Engineering AI</h4>
+      <p>Underperforming well detection, production efficiency scoring, and optimization-oriented interpretation.</p>
     </div>
     <div class="info-box">
-      <h4>Field-Level Analysis</h4>
-      <p>Compares field performance when a field column exists in the uploaded data.</p>
+      <h4>Operational Recommendations</h4>
+      <p>Generates flow restriction, water, gas, depletion, and artificial lift suggestions from the data.</p>
     </div>
     <div class="info-box">
-      <h4>Professional Export</h4>
-      <p>Supports TXT report export and PDF engineering report generation.</p>
+      <h4>Readable Professional UI</h4>
+      <p>Darker overlays and insight boxes make text clearly visible on both desktop and mobile.</p>
     </div>
   </div>
 </div>
@@ -792,16 +968,16 @@ with tab1:
     st.markdown("""
 <div class="info-grid">
   <div class="info-box">
-    <h4>Executive Decision Support</h4>
-    <p>Shows the reservoir health, well class, and dominant risk in one quick view.</p>
+    <h4>Production-Focused AI</h4>
+    <p>Designed to behave like an early-stage AI production engineer, not just a charting dashboard.</p>
   </div>
   <div class="info-box">
-    <h4>Field + Well Analytics</h4>
-    <p>Supports comparison at both well level and field level when the data includes a field column.</p>
+    <h4>Operational Diagnostics</h4>
+    <p>Highlights water risk, gas behavior, depletion, low efficiency, and possible restriction issues.</p>
   </div>
   <div class="info-box">
-    <h4>Professional Reporting</h4>
-    <p>Exports both quick text reports and polished PDF engineering reports.</p>
+    <h4>Export-Ready Output</h4>
+    <p>Builds technical reports in TXT and PDF form for academic, presentation, and portfolio use.</p>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -889,6 +1065,8 @@ decline_params_text = ""
 insights, recs, well_class = [], [], "Unclassified"
 risks = {"water_risk": 0, "gas_risk": 0, "depletion_risk": 0, "anomaly_risk": 0}
 health_score = 0
+efficiency_score = 0
+lift_recs = []
 
 with tab4:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
@@ -1057,18 +1235,8 @@ with tab4:
         normal = temp[temp["_anomaly"] == "Normal"]
         out = temp[temp["_anomaly"] == "Possible Outlier"]
 
-        fig_anom.add_trace(go.Scatter(
-            x=normal[mapping["time"]],
-            y=normal[mapping["production"]],
-            mode="markers",
-            name="Normal"
-        ))
-        fig_anom.add_trace(go.Scatter(
-            x=out[mapping["time"]],
-            y=out[mapping["production"]],
-            mode="markers",
-            name="Possible Outlier"
-        ))
+        fig_anom.add_trace(go.Scatter(x=normal[mapping["time"]], y=normal[mapping["production"]], mode="markers", name="Normal"))
+        fig_anom.add_trace(go.Scatter(x=out[mapping["time"]], y=out[mapping["production"]], mode="markers", name="Possible Outlier"))
         fig_anom.update_layout(
             template="plotly_dark",
             title="Production Outlier Screening",
@@ -1108,15 +1276,17 @@ with tab5:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("AI Engine")
 
-    insights, recs, well_class, risks, health_score = ai_summary(df, mapping)
+    insights, recs, well_class, risks, health_score, efficiency_score, lift_recs = ai_summary(df, mapping)
 
     st.markdown("## Executive Summary")
-    s1, s2, s3 = st.columns(3)
+    s1, s2, s3, s4 = st.columns(4)
     with s1:
-        st.metric("Reservoir Health Score", f"{health_score}/100")
+        st.metric("Reservoir Health", f"{health_score}/100")
     with s2:
-        st.metric("Well Classification", well_class)
+        st.metric("Production Efficiency", f"{efficiency_score}/100")
     with s3:
+        st.metric("Well Classification", well_class)
+    with s4:
         highest_risk = max(risks, key=risks.get)
         st.metric("Highest Risk", highest_risk.replace("_", " ").title())
 
@@ -1187,18 +1357,8 @@ with tab5:
         pr = pred_results[pred_choice]
 
         fig_pred = go.Figure()
-        fig_pred.add_trace(go.Scatter(
-            x=pr["historical_x"],
-            y=pr["historical_y"],
-            mode="lines+markers",
-            name="Historical"
-        ))
-        fig_pred.add_trace(go.Scatter(
-            x=pr["future_x"],
-            y=pr["pred"],
-            mode="lines+markers",
-            name="Predicted"
-        ))
+        fig_pred.add_trace(go.Scatter(x=pr["historical_x"], y=pr["historical_y"], mode="lines+markers", name="Historical"))
+        fig_pred.add_trace(go.Scatter(x=pr["future_x"], y=pr["pred"], mode="lines+markers", name="Predicted"))
         fig_pred.update_layout(
             template="plotly_dark",
             title=f"{labels[pred_choice]} Predictive AI Outlook",
@@ -1210,15 +1370,40 @@ with tab5:
         st.write(f"Predicted trend slope: {pr['slope']:.3f}")
 
     st.markdown("---")
+    worst_well, worst_avg = detect_underperforming_well(df, mapping)
+    if worst_well is not None:
+        st.markdown(f"""
+<div class="ai-box">
+    <h3 style="margin-top:0;">Underperforming Well Detection</h3>
+    <p style="margin-bottom:0;">Current underperforming well: <b>{worst_well}</b></p>
+    <p style="margin-bottom:0;">Average production: <b>{worst_avg:.2f}</b></p>
+</div>
+""", unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.subheader("Production Engineering Suggestions")
     left, right = st.columns(2)
+
     with left:
+        st.markdown('<div class="ai-insight-box">', unsafe_allow_html=True)
         st.subheader("AI Insights")
         for item in insights:
             st.write("• " + item)
+        st.markdown('</div>', unsafe_allow_html=True)
+
     with right:
-        st.subheader("Recommended Actions")
+        st.markdown('<div class="ai-insight-box">', unsafe_allow_html=True)
+        st.subheader("Optimization Recommendations")
         for item in recs:
             st.write("• " + item)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown('<div class="ai-insight-box">', unsafe_allow_html=True)
+    st.subheader("Artificial Lift Suggestions")
+    for item in lift_recs:
+        st.write("• " + item)
+    st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1236,7 +1421,9 @@ with tab6:
         well_class=well_class,
         risks=risks,
         health_score=health_score,
-        decline_params_text=decline_params_text
+        decline_params_text=decline_params_text,
+        efficiency_score=efficiency_score,
+        lift_recs=lift_recs
     )
 
     st.download_button(
@@ -1258,11 +1445,13 @@ with tab6:
         pdf_path = create_pdf_report(
             well_class=well_class,
             health_score=health_score,
+            efficiency_score=efficiency_score,
             risks=risks,
             insights=insights,
             recs=recs,
             best_decline_name=best_decline_name,
-            decline_params_text=decline_params_text
+            decline_params_text=decline_params_text,
+            lift_recs=lift_recs
         )
         with open(pdf_path, "rb") as f:
             st.download_button(
@@ -1274,7 +1463,7 @@ with tab6:
 
     st.markdown("""
 <div class="footer-box">
-    Developed by Abbas • Petroleum Engineering • Phase 3 AI Platform
+    Developed by Abbas • Petroleum Engineering • Phase 4 AI Production Engineering Platform
 </div>
 """, unsafe_allow_html=True)
 
