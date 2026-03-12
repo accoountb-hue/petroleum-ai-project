@@ -2,7 +2,6 @@ import io
 import json
 import tempfile
 from pathlib import Path
-from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -17,229 +16,199 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
 st.set_page_config(
-    page_title="PetroScope",
+    page_title="Petroleum Data Analysis with AI",
     page_icon="🛢️",
     layout="wide",
 )
 
-# =========================================================
-# HUMANIZED PRODUCT UI
-# =========================================================
+# ---------------- THEME + READABILITY FIX ----------------
 st.markdown("""
 <style>
 :root{
-    --bg:#0b1220;
-    --panel:#121b2d;
-    --panel-soft:#172236;
-    --border:#25324a;
-    --text:#f4f7fb;
-    --muted:#b7c4d8;
-    --accent:#4f8cff;
-    --accent-soft:#7fb0ff;
-    --good:#27ae60;
-    --warn:#f39c12;
-    --bad:#e74c3c;
+    --text:#ffffff;
+    --muted:#e6ecff;
+    --soft:#c8d5f0;
+    --border:rgba(255,255,255,.12);
 }
 
+/* Dark readable background */
 [data-testid="stAppViewContainer"]{
-    background: linear-gradient(180deg, #0b1220 0%, #0e1628 100%);
+    background:
+      linear-gradient(rgba(4,10,20,.90), rgba(4,10,20,.94)),
+      url("https://images.unsplash.com/photo-1513828583688-c52646db42da?q=80&w=1800&auto=format&fit=crop");
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
 }
 
 .block-container{
-    max-width: 1380px;
-    padding-top: 1rem;
-    padding-bottom: 2rem;
+    max-width: 1420px;
+    padding-top: 1.2rem;
+    padding-bottom: 2.5rem;
 }
 
+/* Force text readability */
 html, body,
 p, li, span, div, label,
 h1, h2, h3, h4, h5, h6,
 [data-testid="stMarkdownContainer"],
 [data-testid="stMarkdownContainer"] *,
 [data-testid="stMetricValue"],
-[data-testid="stMetricLabel"]{
-    color: var(--text) !important;
-    opacity: 1 !important;
+[data-testid="stMetricLabel"],
+.stAlert,
+.stCaption{
+    color:#ffffff !important;
+    opacity:1 !important;
 }
 
-.app-shell{
-    border:1px solid var(--border);
-    background: linear-gradient(180deg, rgba(18,27,45,.96), rgba(18,27,45,.94));
-    border-radius:20px;
-    padding:20px 22px;
+.main-title{
+    font-size: 3rem;
+    font-weight: 800;
+    color: white;
+    line-height: 1.1;
+    margin-bottom: .45rem;
 }
-
+.sub-title{
+    color: var(--muted);
+    font-size: 1.08rem;
+    line-height: 1.85;
+}
 .hero{
-    border:1px solid var(--border);
-    background: linear-gradient(180deg, rgba(18,27,45,.98), rgba(23,34,54,.96));
-    border-radius:18px;
-    padding:20px 22px;
+    background: linear-gradient(135deg, rgba(10,18,35,.93), rgba(12,19,36,.91));
+    border: 1px solid var(--border);
+    border-radius: 26px;
+    padding: 1.6rem;
+    box-shadow: 0 18px 42px rgba(0,0,0,.24);
 }
-
-.hero-top{
-    display:flex;
-    justify-content:space-between;
-    align-items:flex-start;
-    gap:16px;
-    flex-wrap:wrap;
-}
-
 .badge{
     display:inline-block;
-    font-size:12px;
-    padding:6px 10px;
+    padding:6px 12px;
     border-radius:999px;
-    background:#18243a;
-    border:1px solid var(--border);
-    color:var(--muted);
+    font-size:12px;
+    color:#e5efff;
+    background:rgba(77,163,255,.16);
+    border:1px solid rgba(77,163,255,.28);
+    margin-bottom:.8rem;
 }
 
-.title{
-    font-size:2.2rem;
-    font-weight:800;
-    line-height:1.1;
-    margin:8px 0 8px 0;
+.section-card,
+.metric-card,
+.info-box,
+.ai-box,
+.rank-box,
+.footer-box,
+.ai-insight-box{
+    background: rgba(8, 16, 30, 0.90) !important;
+    border: 1px solid rgba(255,255,255,.14) !important;
+    backdrop-filter: blur(8px);
 }
 
-.subtitle{
-    color:var(--muted) !important;
-    font-size:1rem;
-    line-height:1.7;
-    margin:0;
-    max-width:820px;
+.section-card{
+    margin-top: 1rem;
+    border-radius: 22px;
+    padding: 1.15rem;
+    box-shadow: 0 12px 34px rgba(0,0,0,.18);
 }
-
-.section{
-    border:1px solid var(--border);
-    background: var(--panel);
-    border-radius:16px;
-    padding:16px 18px;
-    margin-top:14px;
-}
-
 .metric-card{
-    border:1px solid var(--border);
-    background: var(--panel-soft);
-    border-radius:14px;
-    padding:14px 16px;
-    min-height:92px;
+    border-radius: 18px;
+    padding: 1rem;
 }
-
-.metric-label{
-    color:var(--muted) !important;
-    font-size:.84rem;
-    margin-bottom:6px;
+.metric-title{
+    color: var(--soft);
+    font-size: .84rem;
 }
-
 .metric-value{
-    font-size:1.7rem;
-    font-weight:800;
+    color: white;
+    font-size: 1.9rem;
+    font-weight: 800;
+    margin-top: .25rem;
 }
 
-.note-box{
-    border-left:4px solid var(--accent);
-    background:#10192b;
-    border-radius:10px;
-    padding:12px 14px;
-    margin-top:10px;
+.info-grid{
+    display:grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+}
+.info-box{
+    border-radius: 18px;
+    padding: 1rem;
+}
+.info-box h4{
+    color:white;
+    margin:0 0 .45rem 0;
+}
+.info-box p{
+    color: var(--muted);
+    margin:0;
+    line-height:1.75;
 }
 
-.clean-box{
-    border:1px solid var(--border);
-    background:#111a2b;
-    border-radius:14px;
-    padding:14px 16px;
+.ai-box, .rank-box, .footer-box{
+    border-radius:18px;
+    padding:1rem;
 }
-
-.insight-box{
-    border:1px solid var(--border);
-    background:#10192a;
-    border-radius:14px;
-    padding:16px;
-    height:100%;
-}
-
-.small{
-    color:var(--muted) !important;
-    font-size:.92rem;
-    line-height:1.7;
-}
-
 .footer-box{
-    border:1px solid var(--border);
-    background:#10192a;
-    border-radius:14px;
-    padding:14px 16px;
+    margin-top:1rem;
     text-align:center;
-    color:var(--muted) !important;
 }
 
-.status-chip{
-    display:inline-block;
-    padding:5px 10px;
-    border-radius:999px;
-    font-size:12px;
-    border:1px solid var(--border);
-    background:#162036;
-    color:var(--muted) !important;
-    margin-right:8px;
-    margin-bottom:8px;
+.ai-insight-box{
+    border-radius:18px;
+    padding:20px;
+    margin-top:10px;
 }
 
 .stTabs [data-baseweb="tab-list"]{
     gap:8px;
 }
 .stTabs [data-baseweb="tab"]{
-    background:#162036;
-    border:1px solid var(--border);
-    border-radius:10px;
-    color:var(--text);
-    padding:.45rem .85rem;
+    background:#16233d;
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:14px;
+    color:white;
+    padding:.46rem .88rem;
 }
 .stTabs [aria-selected="true"]{
-    background:#213252 !important;
-    border-color:#36507e !important;
+    background: linear-gradient(135deg, rgba(77,163,255,.23), rgba(45,212,191,.16)) !important;
+    border-color: rgba(77,163,255,.35) !important;
 }
 
 div.stButton > button, div.stDownloadButton > button{
     border:none;
-    border-radius:10px;
-    padding:.7rem 1rem;
+    border-radius:14px;
+    padding:.78rem 1rem;
     font-weight:700;
-    background:#4f8cff;
-    color:white;
+    background: linear-gradient(135deg, #4da3ff, #2dd4bf);
+    color:#07111f;
 }
 
-.stSelectbox div[data-baseweb="select"] > div,
-.stTextInput input{
+.stSelectbox div[data-baseweb="select"] > div{
     background:#ffffff !important;
     color:#111827 !important;
 }
-
 .stSelectbox svg{
     fill:#111827 !important;
 }
-
 div[role="radiogroup"] label{
-    color:var(--text) !important;
+    color:#ffffff !important;
 }
 
 [data-testid="stDataFrame"]{
-    background:#ffffff !important;
-    border-radius:10px;
+    background: rgba(255,255,255,0.96) !important;
+    border-radius: 12px;
 }
 
 @media (max-width: 900px){
-    .title{
-        font-size:1.8rem;
+    .info-grid{
+        grid-template-columns: 1fr;
+    }
+    .main-title{
+        font-size: 2.1rem;
     }
 }
 </style>
 """, unsafe_allow_html=True)
 
-# =========================================================
-# DATA
-# =========================================================
 SUPPORTED = [".csv", ".xlsx", ".xls", ".txt", ".json"]
 
 SYNONYMS = {
@@ -252,6 +221,7 @@ SYNONYMS = {
     "gor": ["gor", "gas_oil_ratio", "g_o_r", "gasoilratio"]
 }
 
+# ---------------- DATA HELPERS ----------------
 def demo_dataset():
     np.random.seed(42)
     days = np.arange(1, 181)
@@ -289,6 +259,8 @@ def demo_dataset():
             ])
 
     df = pd.DataFrame(rows, columns=["Field", "Well", "Day", "Production", "Pressure", "WaterCut", "GOR"])
+
+    # anomalies
     df.loc[40, "Production"] *= 1.8
     df.loc[220, "Production"] *= 0.45
     df.loc[510, "Pressure"] *= 0.87
@@ -405,9 +377,7 @@ def correlation_matrix_safe(df, mapping):
     corr_df = df[cols].apply(pd.to_numeric, errors="coerce")
     return corr_df.corr()
 
-# =========================================================
-# DECLINE / FORECAST
-# =========================================================
+# ---------------- DECLINE / FORECAST ----------------
 def fit_decline_models(time_vals, q_vals):
     t = np.asarray(time_vals, dtype=float)
     q = np.asarray(q_vals, dtype=float)
@@ -467,6 +437,7 @@ def calculate_eur(df, mapping, decline_results, best_decline_name):
 
     q0 = q[0]
     current_cum = np.sum(q)
+
     future_t = np.arange(t[-1] + 1, t[-1] + 365 + 1, dtype=float)
 
     if best_decline_name == "Exponential":
@@ -520,9 +491,7 @@ def predictive_ai(df, mapping):
 
     return results
 
-# =========================================================
-# RESERVOIR + PRODUCTION AI
-# =========================================================
+# ---------------- RESERVOIR AI ----------------
 def estimate_drive_mechanism(df, mapping):
     prod_col = mapping.get("production")
     press_col = mapping.get("pressure")
@@ -569,23 +538,24 @@ def reservoir_diagnostics(df, mapping):
         if prod.iloc[-1] < prod.iloc[0] and (wc.iloc[-1] - wc.iloc[0]) > 0.03:
             findings.append("Possible water breakthrough detected.")
             if wc.iloc[-1] > 0.45:
-                findings.append("Water trend may match edge-water support or water coning.")
+                findings.append("Water trend may be consistent with edge-water support or water coning.")
 
     if len(prod) >= 5 and len(gor) >= 5:
         if prod.iloc[-1] < prod.iloc[0] and (gor.iloc[-1] - gor.iloc[0]) > 35:
             findings.append("Possible gas breakthrough detected.")
             if gor.iloc[-1] > gor.mean() * 1.15:
-                findings.append("Gas behavior may suggest gas-cap expansion or gas coning.")
+                findings.append("Gas behavior may indicate gas-cap expansion or gas coning.")
 
     if len(prod) >= 5 and len(press) >= 5:
         if prod.iloc[-1] < prod.iloc[0] and press.iloc[-1] < press.iloc[0]:
             findings.append("Production decline is consistent with reservoir pressure depletion.")
 
     if not findings:
-        findings.append("No dominant reservoir pattern detected from current data.")
+        findings.append("No dominant reservoir diagnostic pattern detected from current data.")
 
     return findings
 
+# ---------------- PRODUCTION ENGINEERING AI ----------------
 def calculate_risk_scores(df, mapping):
     prod_col = mapping.get("production")
     press_col = mapping.get("pressure")
@@ -740,6 +710,8 @@ def well_problem_detection(df, mapping, risks):
 
     prod_col = mapping.get("production")
     press_col = mapping.get("pressure")
+    wc_col = mapping.get("water_cut")
+    gor_col = mapping.get("gor")
 
     prod = pd.to_numeric(df[prod_col], errors="coerce").dropna() if prod_col else pd.Series(dtype=float)
     press = pd.to_numeric(df[press_col], errors="coerce").dropna() if press_col else pd.Series(dtype=float)
@@ -775,13 +747,13 @@ def artificial_lift_suggestions(df, mapping, risks):
 
     if len(prod) >= 5 and len(press) >= 5:
         if prod.iloc[-1] < prod.iloc[0] and press.iloc[-1] < press.iloc[0]:
-            suggestions.append("Consider artificial lift review such as gas lift or ESP optimization.")
+            suggestions.append("Consider artificial lift optimization such as gas lift or ESP review to sustain production.")
 
     if len(wc) >= 5 and wc.iloc[-1] > 0.35:
-        suggestions.append("High water cut may reduce lift efficiency; review lift design and water handling.")
+        suggestions.append("High water cut may reduce lift efficiency; review lift design and produced-water handling.")
 
     if not suggestions:
-        suggestions.append("Current data does not strongly require artificial lift intervention.")
+        suggestions.append("Current data does not strongly require artificial lift intervention, but continue monitoring.")
     return suggestions
 
 def workover_recommendations(df, mapping, risks):
@@ -794,7 +766,7 @@ def workover_recommendations(df, mapping, risks):
     if risks["depletion_risk"] > 40:
         recs.append("Consider reservoir management actions before aggressive workover.")
     if risks["anomaly_risk"] > 30:
-        recs.append("Inspect instrumentation and production stability before intervention.")
+        recs.append("Inspect instrumentation and production system stability before intervention.")
 
     prod_col = mapping.get("production")
     press_col = mapping.get("pressure")
@@ -806,20 +778,20 @@ def workover_recommendations(df, mapping, risks):
                 recs.append("Consider stimulation, scale removal, or tubing/choke inspection.")
 
     if not recs:
-        recs.append("No strong workover recommendation at this stage.")
+        recs.append("No strong workover recommendation at this stage; continue surveillance.")
     return recs
 
 def production_optimization_recommendations(df, mapping, risks):
     recs = []
 
     if risks["water_risk"] > 40:
-        recs.append("Investigate water breakthrough and evaluate water shutoff options.")
+        recs.append("Investigate water breakthrough and evaluate water shutoff or coning control options.")
     if risks["gas_risk"] > 40:
-        recs.append("Review gas handling and gas breakthrough behavior.")
+        recs.append("Review gas handling, flowing conditions, and gas breakthrough behavior.")
     if risks["depletion_risk"] > 40:
-        recs.append("Assess pressure support strategy and reservoir-management actions.")
+        recs.append("Assess pressure support strategy and consider reservoir-management actions.")
     if risks["anomaly_risk"] > 30:
-        recs.append("Validate sensor quality and investigate unstable operating conditions.")
+        recs.append("Validate sensor quality and investigate operational disturbances behind abnormal production points.")
 
     prod_col = mapping.get("production")
     press_col = mapping.get("pressure")
@@ -828,7 +800,7 @@ def production_optimization_recommendations(df, mapping, risks):
         press = pd.to_numeric(df[press_col], errors="coerce").dropna()
         if len(prod) >= 5 and len(press) >= 5:
             if prod.iloc[-1] < prod.iloc[0] and abs(press.iloc[-1] - press.iloc[0]) < 10:
-                recs.append("Production decline with near-stable pressure may indicate flow restriction.")
+                recs.append("Production decline with near-stable pressure may indicate choke or near-wellbore flow restriction.")
 
     if not recs:
         recs.append("Maintain current operating strategy and continue monitoring.")
@@ -869,7 +841,7 @@ def ai_summary(df, mapping):
 
         if prod_change < 0:
             insights.append(f"Production declined by {abs(prod_pct):.1f}% over the analyzed period.")
-            recs.append("Review production decline versus expected reservoir performance.")
+            recs.append("Review production decline versus expected field and reservoir performance.")
         else:
             insights.append(f"Production increased by {prod_pct:.1f}% over the analyzed period.")
 
@@ -886,27 +858,27 @@ def ai_summary(df, mapping):
         n_out = int(detect_outliers_iqr(df[prod_col]).fillna(False).sum())
         if n_out > 0:
             insights.append(f"{n_out} production anomaly point(s) detected.")
-            recs.append("Validate abnormal spikes or drops before making decisions.")
+            recs.append("Validate abnormal spikes or drops before engineering decisions.")
 
     if len(press_clean) >= 5:
         press_drop = press_clean.iloc[0] - press_clean.iloc[-1]
         if press_drop > 0:
             insights.append(f"Reservoir pressure dropped by {press_drop:.1f} units.")
-            recs.append("Evaluate pressure maintenance and depletion support.")
+            recs.append("Evaluate depletion support and pressure-maintenance conditions.")
 
     if len(wc_clean) >= 5:
         wc_change = wc_clean.iloc[-1] - wc_clean.iloc[0]
         if wc_change > 0.03:
-            insights.append(f"Water cut increased by {wc_change:.3f}.")
-            recs.append("Investigate water breakthrough, coning, or sweep changes.")
+            insights.append(f"Water cut increased by {wc_change:.3f}, indicating stronger water influence.")
+            recs.append("Investigate possible water breakthrough, coning, or sweep changes.")
         elif wc_change > 0:
             insights.append("Water cut is rising gradually.")
 
     if len(gor_clean) >= 5:
         gor_change = gor_clean.iloc[-1] - gor_clean.iloc[0]
         if gor_change > 30:
-            insights.append(f"GOR increased by {gor_change:.1f}.")
-            recs.append("Review gas behavior and possible breakthrough.")
+            insights.append(f"GOR increased by {gor_change:.1f}, suggesting stronger gas contribution.")
+            recs.append("Review gas behavior, phase changes, and breakthrough risk.")
         elif gor_change > 0:
             insights.append("GOR is trending upward slightly.")
 
@@ -919,11 +891,11 @@ def ai_summary(df, mapping):
             corr = tmp["prod"].corr(tmp["press"])
             insights.append(f"Production-pressure correlation = {corr:.2f}.")
             if corr > 0.5:
-                recs.append("Production appears strongly linked to pressure depletion.")
+                recs.append("Production appears strongly linked to pressure depletion behavior.")
 
     insights.extend(reservoir_diagnostics(df, mapping))
     insights.append(f"Estimated drive mechanism: {drive_mech}.")
-    insights.append(f"Well status: {well_class}.")
+    insights.append(f"AI well classification: {well_class}.")
     insights.append(f"Reservoir health score: {health_score}/100.")
     insights.append(f"Production efficiency score: {efficiency_score}/100.")
     insights.append(
@@ -951,9 +923,7 @@ def ai_summary(df, mapping):
         "drive_mechanism": drive_mech
     }
 
-# =========================================================
-# ML
-# =========================================================
+# ---------------- ML AI ----------------
 def prepare_ml_dataset(df, mapping, target_key="production"):
     time_col = mapping.get("time")
     target_col = mapping.get(target_key)
@@ -1027,17 +997,15 @@ def train_ml_models(df, mapping, target_key="production"):
         "future_idx": np.arange(len(y), len(y) + len(future_pred))
     }
 
-# =========================================================
-# REPORT / PDF
-# =========================================================
+# ---------------- REPORT / PDF ----------------
 def generate_ai_report_text(df, mapping, selected_well, ai_pack, best_decline_name, decline_params_text, eur_value, ml_info):
     lines = []
-    lines.append("PETROSCOPE ENGINEERING REPORT")
-    lines.append("=" * 64)
+    lines.append("AI PETROLEUM ENGINEERING PLATFORM REPORT")
+    lines.append("=" * 72)
     lines.append(f"Rows analyzed: {len(df)}")
     if selected_well is not None:
         lines.append(f"Selected well: {selected_well}")
-    lines.append(f"Well status: {ai_pack['well_class']}")
+    lines.append(f"AI well classification: {ai_pack['well_class']}")
     lines.append(f"Estimated drive mechanism: {ai_pack['drive_mechanism']}")
     lines.append(f"Reservoir health score: {ai_pack['health_score']}/100")
     lines.append(f"Production efficiency score: {ai_pack['efficiency_score']}/100")
@@ -1058,18 +1026,18 @@ def generate_ai_report_text(df, mapping, selected_well, ai_pack, best_decline_na
 
     lines.append("")
     lines.append("Risk Scores:")
-    lines.append(f"- Water risk: {ai_pack['risks']['water_risk']}/100")
-    lines.append(f"- Gas risk: {ai_pack['risks']['gas_risk']}/100")
-    lines.append(f"- Depletion risk: {ai_pack['risks']['depletion_risk']}/100")
-    lines.append(f"- Data quality risk: {ai_pack['risks']['anomaly_risk']}/100")
+    lines.append(f"- Water breakthrough risk: {ai_pack['risks']['water_risk']}/100")
+    lines.append(f"- Gas breakthrough risk: {ai_pack['risks']['gas_risk']}/100")
+    lines.append(f"- Pressure depletion risk: {ai_pack['risks']['depletion_risk']}/100")
+    lines.append(f"- Data quality / anomaly risk: {ai_pack['risks']['anomaly_risk']}/100")
 
     lines.append("")
-    lines.append("Insights:")
+    lines.append("AI Insights:")
     for item in ai_pack["insights"]:
         lines.append(f"* {item}")
 
     lines.append("")
-    lines.append("Recommendations:")
+    lines.append("Optimization / Workover Recommendations:")
     for item in ai_pack["recommendations"]:
         lines.append(f"* {item}")
 
@@ -1083,7 +1051,7 @@ def generate_ai_report_text(df, mapping, selected_well, ai_pack, best_decline_na
 def create_pdf_report(ai_pack, best_decline_name, decline_params_text, eur_value, ml_info):
     temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     c = canvas.Canvas(temp.name, pagesize=letter)
-    _, height = letter
+    width, height = letter
     y = height - 50
 
     def draw_line(text, font="Helvetica", size=10, step=15):
@@ -1095,21 +1063,21 @@ def create_pdf_report(ai_pack, best_decline_name, decline_params_text, eur_value
         c.drawString(50, y, text[:110])
         y -= step
 
-    draw_line("PetroScope Engineering Report", font="Helvetica-Bold", size=16, step=24)
-    draw_line(f"Well status: {ai_pack['well_class']}", size=11)
-    draw_line(f"Estimated drive mechanism: {ai_pack['drive_mechanism']}", size=11)
-    draw_line(f"Reservoir health score: {ai_pack['health_score']}/100", size=11)
-    draw_line(f"Production efficiency score: {ai_pack['efficiency_score']}/100", size=11)
-    draw_line(f"Best decline model: {best_decline_name if best_decline_name else '-'}", size=11)
-    draw_line(f"Decline parameters: {decline_params_text if decline_params_text else '-'}", size=11)
+    draw_line("Petroleum AI Engineering Report", font="Helvetica-Bold", size=16, step=24)
+    draw_line(f"AI Well Classification: {ai_pack['well_class']}", size=11)
+    draw_line(f"Estimated Drive Mechanism: {ai_pack['drive_mechanism']}", size=11)
+    draw_line(f"Reservoir Health Score: {ai_pack['health_score']}/100", size=11)
+    draw_line(f"Production Efficiency Score: {ai_pack['efficiency_score']}/100", size=11)
+    draw_line(f"Best Decline Model: {best_decline_name if best_decline_name else '-'}", size=11)
+    draw_line(f"Decline Parameters: {decline_params_text if decline_params_text else '-'}", size=11)
     draw_line(f"EUR: {eur_value if eur_value is not None else '-'}", size=11)
-    draw_line(f"Best ML model: {ml_info['best_model_name'] if ml_info is not None else '-'}", size=11, step=22)
+    draw_line(f"Best ML Model: {ml_info['best_model_name'] if ml_info is not None else '-'}", size=11, step=22)
 
     draw_line("Risk Scores", font="Helvetica-Bold", size=12, step=18)
     for k, v in ai_pack["risks"].items():
         draw_line(f"- {k}: {v}")
 
-    draw_line("Insights", font="Helvetica-Bold", size=12, step=18)
+    draw_line("AI Insights", font="Helvetica-Bold", size=12, step=18)
     for item in ai_pack["insights"][:8]:
         draw_line(f"- {item}")
 
@@ -1124,66 +1092,61 @@ def create_pdf_report(ai_pack, best_decline_name, decline_params_text, eur_value
     c.save()
     return temp.name
 
-# =========================================================
-# HUMANIZED HEADER
-# =========================================================
+# ---------------- HEADER ----------------
 st.markdown("""
-<div class="app-shell">
-    <div class="hero">
-        <div class="hero-top">
-            <div>
-                <span class="badge">PetroScope • Internal Build v1.0</span>
-                <div class="title">PetroScope</div>
-                <p class="subtitle">
-                    A working engineering dashboard for reviewing production data, identifying well issues,
-                    checking reservoir behavior, and preparing quick technical reports.
-                </p>
-            </div>
-            <div class="clean-box" style="min-width:260px;">
-                <div class="small"><b>Project focus</b></div>
-                <div class="small">Well review • Reservoir screening • Forecast support • Report export</div>
-            </div>
-        </div>
+<div class="hero">
+  <div class="badge">Version 13 • Integrated Petroleum AI Platform</div>
+  <div class="main-title">Petroleum Data Analysis with AI</div>
+  <div class="sub-title">
+    Integrated one-file platform covering Advanced Reservoir AI, Smart Well Diagnostics,
+    Field Optimization AI, Machine Learning AI, Professional Dashboard, and a Business-Level Demo layer.
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<div class="section-card">
+  <h3 style="margin-top:0;">Integrated Modules</h3>
+  <div class="info-grid">
+    <div class="info-box">
+      <h4>Reservoir + Production AI</h4>
+      <p>Water breakthrough, gas breakthrough, drive mechanism estimation, workover logic, and optimization suggestions.</p>
     </div>
+    <div class="info-box">
+      <h4>Field + Well + ML</h4>
+      <p>Field forecasting, best/worst well analysis, ML model comparison, and predictive analytics.</p>
+    </div>
+    <div class="info-box">
+      <h4>Professional Output</h4>
+      <p>Executive summary, professional charts, TXT and PDF reports, plus business-layer demo widgets.</p>
+    </div>
+  </div>
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown("""
-<div class="section">
-    <span class="status-chip">Upload data</span>
-    <span class="status-chip">Review wells</span>
-    <span class="status-chip">Run diagnostics</span>
-    <span class="status-chip">Export report</span>
-</div>
-""", unsafe_allow_html=True)
-
-# =========================================================
-# CONTROLS
-# =========================================================
-st.markdown('<div class="section">', unsafe_allow_html=True)
-st.subheader("Workspace")
-ctrl1, ctrl2 = st.columns([1.0, 1.4])
+# ---------------- CONTROLS ----------------
+st.markdown('<div class="section-card">', unsafe_allow_html=True)
+st.subheader("Start Analysis")
+ctrl1, ctrl2 = st.columns([1.05, 1.45])
 
 with ctrl1:
-    source = st.radio("Data source", ["Upload file", "Use demo dataset"])
+    source = st.radio("Choose data source", ["Upload your file", "Use demo dataset"])
 
 with ctrl2:
     uploaded = None
-    if source == "Upload file":
+    if source == "Upload your file":
         uploaded = st.file_uploader("Upload structured dataset", type=["csv", "xlsx", "xls", "txt", "json"])
-        st.caption("Supported formats: CSV, Excel, TXT, JSON")
+        st.caption("Supported: CSV, Excel, TXT, JSON")
     else:
-        st.info("Demo dataset is loaded.")
+        st.info("Demo petroleum dataset is active.")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# =========================================================
-# LOAD DATA
-# =========================================================
+# ---------------- LOAD DATA ----------------
 if source == "Use demo dataset":
     raw_df = demo_dataset()
 else:
     if uploaded is None:
-        st.info("Upload a file to continue.")
+        st.info("Upload a structured dataset to continue.")
         st.stop()
     try:
         raw_df = load_uploaded_file(uploaded)
@@ -1197,90 +1160,68 @@ if raw_df.empty:
 
 det = auto_detect_columns(raw_df)
 
-# =========================================================
-# KPI ROW
-# =========================================================
-st.markdown('<div class="section">', unsafe_allow_html=True)
+# ---------------- KPI ROW ----------------
+st.markdown('<div class="section-card">', unsafe_allow_html=True)
 k1, k2, k3, k4 = st.columns(4)
 with k1:
-    st.markdown(f'<div class="metric-card"><div class="metric-label">Rows</div><div class="metric-value">{len(raw_df)}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><div class="metric-title">Rows</div><div class="metric-value">{len(raw_df)}</div></div>', unsafe_allow_html=True)
 with k2:
-    st.markdown(f'<div class="metric-card"><div class="metric-label">Columns</div><div class="metric-value">{len(raw_df.columns)}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><div class="metric-title">Columns</div><div class="metric-value">{len(raw_df.columns)}</div></div>', unsafe_allow_html=True)
 with k3:
-    st.markdown(f'<div class="metric-card"><div class="metric-label">Detected production</div><div class="metric-value">{det["production"] or "-"}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><div class="metric-title">Detected Production</div><div class="metric-value">{det["production"] or "-"}</div></div>', unsafe_allow_html=True)
 with k4:
-    st.markdown(f'<div class="metric-card"><div class="metric-label">Detected well</div><div class="metric-value">{det["well"] or "-"}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card"><div class="metric-title">Detected Well</div><div class="metric-value">{det["well"] or "-"}</div></div>', unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
-# =========================================================
-# TABS
-# =========================================================
+# ---------------- TABS ----------------
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "Overview",
-    "Data",
-    "Column Setup",
-    "Engineering Review",
-    "Diagnostics",
-    "Modeling",
-    "Reports"
+    "Data Preview",
+    "Column Mapping",
+    "Engineering Analytics",
+    "AI Engine",
+    "Machine Learning",
+    "Reports & Platform Demo"
 ])
 
 with tab1:
-    st.markdown('<div class="section">', unsafe_allow_html=True)
-    st.subheader("Project Notes")
-    col_a, col_b, col_c = st.columns(3)
-
-    with col_a:
-        st.markdown("""
-<div class="clean-box">
-    <h4 style="margin-top:0;">What this build does</h4>
-    <p class="small">Screens production, pressure, water cut, GOR, well ranking, decline trend, and quick diagnostics.</p>
-</div>
-""", unsafe_allow_html=True)
-
-    with col_b:
-        st.markdown(f"""
-<div class="clean-box">
-    <h4 style="margin-top:0;">Recent activity</h4>
-    <p class="small">Last opened: {datetime.now().strftime("%Y-%m-%d %H:%M")}</p>
-    <p class="small">Mode: {"Demo dataset" if source == "Use demo dataset" else "Uploaded file"}</p>
-</div>
-""", unsafe_allow_html=True)
-
-    with col_c:
-        st.markdown("""
-<div class="clean-box">
-    <h4 style="margin-top:0;">Developer note</h4>
-    <p class="small">Built as an engineering analysis workspace, not just a visual demo.</p>
-</div>
-""", unsafe_allow_html=True)
-
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.subheader("Integrated Roadmap Status")
     st.markdown("""
-<div class="note-box">
-    <b>Suggested workflow:</b> upload data → review column setup → check engineering review →
-    run diagnostics → test models → export report.
+<div class="info-grid">
+  <div class="info-box">
+    <h4>Phase 5 + 6</h4>
+    <p>Advanced Reservoir AI and Smart Well Diagnostics are integrated in the AI logic.</p>
+  </div>
+  <div class="info-box">
+    <h4>Phase 7 + 8</h4>
+    <p>Field Optimization AI and Machine Learning AI are included with forecasting and model comparison.</p>
+  </div>
+  <div class="info-box">
+    <h4>Phase 9 + 10</h4>
+    <p>Professional dashboard is real; business layer is included as a demo UI because real auth/database/API need external services.</p>
+  </div>
 </div>
 """, unsafe_allow_html=True)
-
     st.markdown('</div>', unsafe_allow_html=True)
 
 with tab2:
-    st.markdown('<div class="section">', unsafe_allow_html=True)
-    st.subheader("Data Preview")
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.subheader("Dataset Preview")
     st.dataframe(raw_df.head(30), use_container_width=True)
     st.write("Columns:", list(raw_df.columns))
     st.markdown('</div>', unsafe_allow_html=True)
 
 with tab3:
-    st.markdown('<div class="section">', unsafe_allow_html=True)
-    st.subheader("Column Setup")
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.subheader("Map Engineering Columns")
 
     cols = list(raw_df.columns)
     num_cols = [c for c in raw_df.columns if pd.api.types.is_numeric_dtype(raw_df[c])]
     left, mid, right = st.columns(3)
 
     with left:
-        time_col = st.selectbox("Time / date", cols, index=cols.index(det["time"]) if det["time"] in cols else 0)
+        time_col = st.selectbox("Time / Date", cols, index=cols.index(det["time"]) if det["time"] in cols else 0)
         well_opts = ["None"] + cols
         field_opts = ["None"] + cols
         well_col = st.selectbox("Well column", well_opts, index=well_opts.index(det["well"]) if det["well"] in well_opts else 0)
@@ -1292,7 +1233,7 @@ with tab3:
         press_col = st.selectbox("Pressure", prod_opts, index=prod_opts.index(det["pressure"]) if det["pressure"] in prod_opts else 0)
 
     with right:
-        wc_col = st.selectbox("Water cut", prod_opts, index=prod_opts.index(det["water_cut"]) if det["water_cut"] in prod_opts else 0)
+        wc_col = st.selectbox("Water Cut", prod_opts, index=prod_opts.index(det["water_cut"]) if det["water_cut"] in prod_opts else 0)
         gor_col = st.selectbox("GOR", prod_opts, index=prod_opts.index(det["gor"]) if det["gor"] in prod_opts else 0)
 
     mapping = {
@@ -1307,10 +1248,10 @@ with tab3:
 
     selected_mapping_values = [v for v in mapping.values() if v is not None]
     if len(selected_mapping_values) != len(set(selected_mapping_values)):
-        st.error("Duplicate column mapping detected. Choose a different column for each role.")
+        st.error("Duplicate column mapping detected. Please choose a different column for each role.")
         st.stop()
 
-    st.success("Column setup updated.")
+    st.success("Column mapping updated.")
     st.json(mapping)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1330,14 +1271,14 @@ except NameError:
 
 selected_mapping_values = [v for v in mapping.values() if v is not None]
 if len(selected_mapping_values) != len(set(selected_mapping_values)):
-    st.error("Duplicate column mapping detected. Fix the setup in Column Setup tab.")
+    st.error("Duplicate column mapping detected. Fix the mapping in Column Mapping tab.")
     st.stop()
 
 df = raw_df.copy()
 selected_well = None
 if mapping["well"]:
     wells = ["All"] + sorted(df[mapping["well"]].dropna().astype(str).unique().tolist())
-    selected_well = st.selectbox("Well filter", wells, key="well_filter")
+    selected_well = st.selectbox("Filter by well", wells, key="well_filter")
     if selected_well != "All":
         df = df[df[mapping["well"]].astype(str) == selected_well].copy()
 
@@ -1346,8 +1287,8 @@ decline_params_text = ""
 eur_value = None
 
 with tab4:
-    st.markdown('<div class="section">', unsafe_allow_html=True)
-    st.subheader("Engineering Review")
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.subheader("Engineering Analytics")
 
     if mapping["production"]:
         fig_prod = go.Figure()
@@ -1368,7 +1309,7 @@ with tab4:
                 name="Production",
                 hovertemplate="Time: %{x}<br>Production: %{y:.2f}<extra></extra>"
             ))
-        fig_prod.update_layout(template="plotly_dark", title="Production vs Time", title_font_size=20, font=dict(size=13), hovermode="x unified")
+        fig_prod.update_layout(template="plotly_dark", title="Production vs Time", title_font_size=22, font=dict(size=14), hovermode="x unified")
         st.plotly_chart(fig_prod, use_container_width=True)
 
     c1, c2 = st.columns(2)
@@ -1377,10 +1318,20 @@ with tab4:
             fig_press = go.Figure()
             if mapping["well"] and selected_well == "All":
                 for well_name, sub in df.groupby(mapping["well"]):
-                    fig_press.add_trace(go.Scatter(x=sub[mapping["time"]], y=sub[mapping["pressure"]], mode="lines", name=str(well_name)))
+                    fig_press.add_trace(go.Scatter(
+                        x=sub[mapping["time"]],
+                        y=sub[mapping["pressure"]],
+                        mode="lines",
+                        name=str(well_name)
+                    ))
             else:
-                fig_press.add_trace(go.Scatter(x=df[mapping["time"]], y=df[mapping["pressure"]], mode="lines+markers", name="Pressure"))
-            fig_press.update_layout(template="plotly_dark", title="Pressure vs Time", title_font_size=20, font=dict(size=13), hovermode="x unified")
+                fig_press.add_trace(go.Scatter(
+                    x=df[mapping["time"]],
+                    y=df[mapping["pressure"]],
+                    mode="lines+markers",
+                    name="Pressure"
+                ))
+            fig_press.update_layout(template="plotly_dark", title="Pressure vs Time", title_font_size=22, font=dict(size=14), hovermode="x unified")
             st.plotly_chart(fig_press, use_container_width=True)
 
     with c2:
@@ -1388,37 +1339,62 @@ with tab4:
             fig_wc = go.Figure()
             if mapping["well"] and selected_well == "All":
                 for well_name, sub in df.groupby(mapping["well"]):
-                    fig_wc.add_trace(go.Scatter(x=sub[mapping["time"]], y=sub[mapping["water_cut"]], mode="lines", name=str(well_name)))
+                    fig_wc.add_trace(go.Scatter(
+                        x=sub[mapping["time"]],
+                        y=sub[mapping["water_cut"]],
+                        mode="lines",
+                        name=str(well_name)
+                    ))
             else:
-                fig_wc.add_trace(go.Scatter(x=df[mapping["time"]], y=df[mapping["water_cut"]], mode="lines+markers", name="Water Cut"))
-            fig_wc.update_layout(template="plotly_dark", title="Water Cut vs Time", title_font_size=20, font=dict(size=13), hovermode="x unified")
+                fig_wc.add_trace(go.Scatter(
+                    x=df[mapping["time"]],
+                    y=df[mapping["water_cut"]],
+                    mode="lines+markers",
+                    name="Water Cut"
+                ))
+            fig_wc.update_layout(template="plotly_dark", title="Water Cut vs Time", title_font_size=22, font=dict(size=14), hovermode="x unified")
             st.plotly_chart(fig_wc, use_container_width=True)
 
     if mapping["gor"]:
         fig_gor = go.Figure()
         if mapping["well"] and selected_well == "All":
             for well_name, sub in df.groupby(mapping["well"]):
-                fig_gor.add_trace(go.Scatter(x=sub[mapping["time"]], y=sub[mapping["gor"]], mode="lines", name=str(well_name)))
+                fig_gor.add_trace(go.Scatter(
+                    x=sub[mapping["time"]],
+                    y=sub[mapping["gor"]],
+                    mode="lines",
+                    name=str(well_name)
+                ))
         else:
-            fig_gor.add_trace(go.Scatter(x=df[mapping["time"]], y=df[mapping["gor"]], mode="lines+markers", name="GOR"))
-        fig_gor.update_layout(template="plotly_dark", title="GOR vs Time", title_font_size=20, font=dict(size=13), hovermode="x unified")
+            fig_gor.add_trace(go.Scatter(
+                x=df[mapping["time"]],
+                y=df[mapping["gor"]],
+                mode="lines+markers",
+                name="GOR"
+            ))
+        fig_gor.update_layout(template="plotly_dark", title="GOR vs Time", title_font_size=22, font=dict(size=14), hovermode="x unified")
         st.plotly_chart(fig_gor, use_container_width=True)
 
     if mapping["well"] and mapping["production"] and selected_well == "All":
         st.markdown("---")
-        st.subheader("Well Ranking")
+        st.subheader("Well Performance Ranking")
         ranking_df = rank_wells(df, mapping["well"], mapping["production"])
         st.dataframe(ranking_df, use_container_width=True)
 
     if mapping["field"] and mapping["production"]:
         st.markdown("---")
-        st.subheader("Field Summary")
+        st.subheader("Field Level Analysis")
         field_rank_df = rank_fields(df, mapping["field"], mapping["production"])
         st.dataframe(field_rank_df, use_container_width=True)
 
+        fig_field = go.Figure()
+        fig_field.add_trace(go.Bar(x=field_rank_df[mapping["field"]], y=field_rank_df["Average_Production"]))
+        fig_field.update_layout(template="plotly_dark", title="Field Production Comparison", title_font_size=22, font=dict(size=14))
+        st.plotly_chart(fig_field, use_container_width=True)
+
     if mapping["production"]:
         st.markdown("---")
-        st.subheader("Anomaly Check")
+        st.subheader("Production Anomaly Detection")
         anom_mask = detect_outliers_iqr(df[mapping["production"]])
         temp = df.copy()
         temp["_anomaly"] = np.where(anom_mask.fillna(False), "Possible Outlier", "Normal")
@@ -1429,17 +1405,17 @@ with tab4:
 
         fig_anom.add_trace(go.Scatter(x=normal[mapping["time"]], y=normal[mapping["production"]], mode="markers", name="Normal"))
         fig_anom.add_trace(go.Scatter(x=out[mapping["time"]], y=out[mapping["production"]], mode="markers", name="Possible Outlier"))
-        fig_anom.update_layout(template="plotly_dark", title="Production Outlier Check", title_font_size=20, font=dict(size=13))
+        fig_anom.update_layout(template="plotly_dark", title="Production Outlier Screening", title_font_size=22, font=dict(size=14))
         st.plotly_chart(fig_anom, use_container_width=True)
 
     st.markdown("---")
-    st.subheader("Missing Values")
+    st.subheader("Missing Values Summary")
     st.dataframe(missing_values_summary(df), use_container_width=True)
 
     corr = correlation_matrix_safe(df, mapping)
     if corr is not None:
         st.markdown("---")
-        st.subheader("Correlation")
+        st.subheader("Correlation Matrix")
         fig_corr = go.Figure(data=go.Heatmap(
             z=corr.values,
             x=list(corr.columns),
@@ -1448,24 +1424,25 @@ with tab4:
             texttemplate="%{text}",
             colorscale="Blues"
         ))
-        fig_corr.update_layout(template="plotly_dark", title="Correlation Matrix", title_font_size=20, font=dict(size=13))
+        fig_corr.update_layout(template="plotly_dark", title="Correlation Matrix", title_font_size=22, font=dict(size=14))
         st.plotly_chart(fig_corr, use_container_width=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
 with tab5:
-    st.markdown('<div class="section">', unsafe_allow_html=True)
-    st.subheader("Diagnostics")
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.subheader("AI Engine")
 
     ai_pack = ai_summary(df, mapping)
 
+    st.markdown("## Executive Summary")
     s1, s2, s3, s4 = st.columns(4)
     with s1:
         st.metric("Reservoir Health", f"{ai_pack['health_score']}/100")
     with s2:
         st.metric("Production Efficiency", f"{ai_pack['efficiency_score']}/100")
     with s3:
-        st.metric("Well Status", ai_pack["well_class"])
+        st.metric("Well Classification", ai_pack["well_class"])
     with s4:
         highest_risk = max(ai_pack["risks"], key=ai_pack["risks"].get)
         st.metric("Highest Risk", highest_risk.replace("_", " ").title())
@@ -1489,7 +1466,7 @@ with tab5:
             fig_decline.add_trace(go.Scatter(x=time_hist, y=q_hist, mode="lines+markers", name="Actual"))
             for model_name, info in results.items():
                 fig_decline.add_trace(go.Scatter(x=time_hist, y=info["qhat"], mode="lines", name=f"{model_name} Fit"))
-            fig_decline.update_layout(template="plotly_dark", title="Decline Model Comparison", title_font_size=20, font=dict(size=13), hovermode="x unified")
+            fig_decline.update_layout(template="plotly_dark", title="Decline Model Comparison", title_font_size=22, font=dict(size=14), hovermode="x unified")
             st.plotly_chart(fig_decline, use_container_width=True)
 
             metrics_df = pd.DataFrame({
@@ -1507,15 +1484,27 @@ with tab5:
 
             eur_value = calculate_eur(df, mapping, results, best_decline_name)
 
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(f'<div class="metric-card"><div class="metric-title">Water Risk</div><div class="metric-value">{ai_pack["risks"]["water_risk"]}</div></div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown(f'<div class="metric-card"><div class="metric-title">Gas Risk</div><div class="metric-value">{ai_pack["risks"]["gas_risk"]}</div></div>', unsafe_allow_html=True)
+    with c3:
+        st.markdown(f'<div class="metric-card"><div class="metric-title">Depletion Risk</div><div class="metric-value">{ai_pack["risks"]["depletion_risk"]}</div></div>', unsafe_allow_html=True)
+    with c4:
+        st.markdown(f'<div class="metric-card"><div class="metric-title">Data Quality Risk</div><div class="metric-value">{ai_pack["risks"]["anomaly_risk"]}</div></div>', unsafe_allow_html=True)
+
     if eur_value is not None:
+        st.markdown("---")
         st.markdown(f"""
-<div class="clean-box">
-    <b>Estimated Ultimate Recovery (EUR):</b> {eur_value}
+<div class="ai-box">
+    <h3 style="margin-top:0;">Estimated Ultimate Recovery (EUR)</h3>
+    <p><b>{eur_value}</b></p>
 </div>
 """, unsafe_allow_html=True)
 
     st.markdown("---")
-    st.subheader("Quick Forecast")
+    st.subheader("Predictive AI")
     pred_results = predictive_ai(df, mapping)
     labels = {
         "production": "Production",
@@ -1525,14 +1514,15 @@ with tab5:
     }
 
     if pred_results:
-        pred_choice = st.selectbox("Variable", list(pred_results.keys()))
+        pred_choice = st.selectbox("Select variable for predictive AI", list(pred_results.keys()))
         pr = pred_results[pred_choice]
 
         fig_pred = go.Figure()
         fig_pred.add_trace(go.Scatter(x=pr["historical_x"], y=pr["historical_y"], mode="lines+markers", name="Historical"))
         fig_pred.add_trace(go.Scatter(x=pr["future_x"], y=pr["pred"], mode="lines+markers", name="Predicted"))
-        fig_pred.update_layout(template="plotly_dark", title=f"{labels[pred_choice]} Forecast", title_font_size=20, font=dict(size=13), hovermode="x unified")
+        fig_pred.update_layout(template="plotly_dark", title=f"{labels[pred_choice]} Predictive AI Outlook", title_font_size=22, font=dict(size=14), hovermode="x unified")
         st.plotly_chart(fig_pred, use_container_width=True)
+        st.write(f"Predicted trend slope: {pr['slope']:.3f}")
 
     st.markdown("---")
     worst_well, worst_avg = detect_underperforming_well(df, mapping)
@@ -1542,21 +1532,21 @@ with tab5:
     with p1:
         if worst_well is not None:
             st.markdown(f"""
-<div class="clean-box">
-    <h4 style="margin-top:0;">Underperforming Well</h4>
-    <p class="small">Well: <b>{worst_well}</b></p>
-    <p class="small">Average production: <b>{worst_avg:.2f}</b></p>
+<div class="ai-box">
+    <h3 style="margin-top:0;">Underperforming Well</h3>
+    <p>Detected well: <b>{worst_well}</b></p>
+    <p>Average production: <b>{worst_avg:.2f}</b></p>
 </div>
 """, unsafe_allow_html=True)
 
     with p2:
         if loss_pack is not None:
             st.markdown(f"""
-<div class="clean-box">
-    <h4 style="margin-top:0;">Production Loss Estimate</h4>
-    <p class="small">Potential: <b>{loss_pack['potential']}</b></p>
-    <p class="small">Actual: <b>{loss_pack['actual']}</b></p>
-    <p class="small">Loss: <b>{loss_pack['loss']}</b></p>
+<div class="ai-box">
+    <h3 style="margin-top:0;">Production Loss Estimation</h3>
+    <p>Potential production: <b>{loss_pack['potential']}</b></p>
+    <p>Actual production: <b>{loss_pack['actual']}</b></p>
+    <p>Estimated loss: <b>{loss_pack['loss']}</b></p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1564,44 +1554,44 @@ with tab5:
     left, right = st.columns(2)
 
     with left:
-        st.markdown('<div class="insight-box">', unsafe_allow_html=True)
-        st.markdown("### Findings")
+        st.markdown('<div class="ai-insight-box">', unsafe_allow_html=True)
+        st.markdown("### AI Insights")
         for item in ai_pack["insights"]:
-            st.markdown(f"<p style='color:#ffffff !important; font-size:17px; font-weight:600; line-height:1.8; margin-bottom:8px;'>• {item}</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='color:#ffffff !important; font-size:18px; font-weight:600; line-height:1.9; margin-bottom:10px;'>• {item}</p>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     with right:
-        st.markdown('<div class="insight-box">', unsafe_allow_html=True)
-        st.markdown("### Recommended Actions")
+        st.markdown('<div class="ai-insight-box">', unsafe_allow_html=True)
+        st.markdown("### Optimization Recommendations")
         for item in ai_pack["recommendations"]:
-            st.markdown(f"<p style='color:#ffffff !important; font-size:17px; font-weight:600; line-height:1.8; margin-bottom:8px;'>• {item}</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='color:#ffffff !important; font-size:18px; font-weight:600; line-height:1.9; margin-bottom:10px;'>• {item}</p>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
     c_left, c_right = st.columns(2)
 
     with c_left:
-        st.markdown('<div class="insight-box">', unsafe_allow_html=True)
-        st.markdown("### Well Issues")
+        st.markdown('<div class="ai-insight-box">', unsafe_allow_html=True)
+        st.markdown("### Well Problem Detection")
         for item in ai_pack["well_problems"]:
-            st.markdown(f"<p style='color:#ffffff !important; font-size:17px; font-weight:600; line-height:1.8; margin-bottom:8px;'>• {item}</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='color:#ffffff !important; font-size:18px; font-weight:600; line-height:1.9; margin-bottom:10px;'>• {item}</p>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     with c_right:
-        st.markdown('<div class="insight-box">', unsafe_allow_html=True)
-        st.markdown("### Artificial Lift Notes")
+        st.markdown('<div class="ai-insight-box">', unsafe_allow_html=True)
+        st.markdown("### Artificial Lift Suggestions")
         for item in ai_pack["lift_recs"]:
-            st.markdown(f"<p style='color:#ffffff !important; font-size:17px; font-weight:600; line-height:1.8; margin-bottom:8px;'>• {item}</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='color:#ffffff !important; font-size:18px; font-weight:600; line-height:1.9; margin-bottom:10px;'>• {item}</p>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
 with tab6:
-    st.markdown('<div class="section">', unsafe_allow_html=True)
-    st.subheader("Modeling")
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.subheader("Machine Learning AI")
 
     target_choice = st.selectbox(
-        "Target variable",
+        "Choose target for ML models",
         ["production", "pressure", "water_cut"]
     )
 
@@ -1610,7 +1600,7 @@ with tab6:
     if ml_info is None:
         st.warning("Not enough clean data to train ML models.")
     else:
-        st.success(f"Best model: {ml_info['best_model_name']}")
+        st.success(f"Best ML model: {ml_info['best_model_name']}")
         st.dataframe(ml_info["results_df"], use_container_width=True)
 
         fig_ml = go.Figure()
@@ -1628,24 +1618,24 @@ with tab6:
         ))
         fig_ml.update_layout(
             template="plotly_dark",
-            title=f"ML Forecast — {target_choice}",
-            title_font_size=20,
-            font=dict(size=13),
+            title=f"Machine Learning Forecast — {target_choice}",
+            title_font_size=22,
+            font=dict(size=14),
             hovermode="x unified"
         )
         st.plotly_chart(fig_ml, use_container_width=True)
 
-        st.markdown(f"""
-<div class="note-box">
-    <b>Model note:</b> Best-performing model for this dataset is <b>{ml_info['best_model_name']}</b>.
-</div>
-""", unsafe_allow_html=True)
+        st.markdown('<div class="ai-insight-box">', unsafe_allow_html=True)
+        st.markdown("### ML Interpretation")
+        st.markdown(f"<p style='color:#ffffff !important; font-size:18px; font-weight:600; line-height:1.9;'>• Best-performing model for this dataset: {ml_info['best_model_name']}.</p>", unsafe_allow_html=True)
+        st.markdown(f"<p style='color:#ffffff !important; font-size:18px; font-weight:600; line-height:1.9;'>• Features used: {', '.join(ml_info['feature_names'])}.</p>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
 with tab7:
-    st.markdown('<div class="section">', unsafe_allow_html=True)
-    st.subheader("Reports")
+    st.markdown('<div class="section-card">', unsafe_allow_html=True)
+    st.subheader("Reports & Platform Demo")
 
     ai_pack = ai_summary(df, mapping)
     ml_info_for_report = train_ml_models(df, mapping, "production")
@@ -1661,24 +1651,22 @@ with tab7:
         ml_info=ml_info_for_report
     )
 
-    d1, d2 = st.columns(2)
-    with d1:
-        st.download_button(
-            "Download report (.txt)",
-            data=report_text.encode("utf-8"),
-            file_name="petroscope_report.txt",
-            mime="text/plain"
-        )
-    with d2:
-        st.download_button(
-            "Download filtered data (.csv)",
-            data=df.to_csv(index=False),
-            file_name="filtered_petroscope_data.csv",
-            mime="text/csv"
-        )
+    st.download_button(
+        "Download AI engineering report (.txt)",
+        data=report_text.encode("utf-8"),
+        file_name="petroleum_ai_report.txt",
+        mime="text/plain"
+    )
 
-    st.markdown("### PDF Report")
-    if st.button("Generate PDF"):
+    st.download_button(
+        "Download current filtered data (.csv)",
+        data=df.to_csv(index=False),
+        file_name="filtered_petroleum_data.csv",
+        mime="text/csv"
+    )
+
+    st.markdown("### Download Professional PDF Report")
+    if st.button("Generate PDF Report"):
         pdf_path = create_pdf_report(
             ai_pack=ai_pack,
             best_decline_name=best_decline_name,
@@ -1690,34 +1678,40 @@ with tab7:
             st.download_button(
                 "Download PDF",
                 f.read(),
-                file_name="petroscope_report.pdf",
+                file_name="petroleum_ai_report.pdf",
                 mime="application/pdf"
             )
 
     st.markdown("---")
-    st.subheader("Platform Notes")
-    st.markdown("""
-<div class="clean-box">
-    <p class="small"><b>Current build:</b> working engineering dashboard with diagnostics, forecasting, ML, and export.</p>
-    <p class="small"><b>Next platform step:</b> user accounts, saved projects, persistent files, and database-backed workspaces.</p>
+    st.subheader("Business-Level Demo Layer")
+    st.info("This section is a demo UI only. Real accounts, cloud DB, and API need external services.")
+
+    b1, b2 = st.columns(2)
+
+    with b1:
+        st.markdown("""
+<div class="ai-box">
+    <h3 style="margin-top:0;">User Accounts (Demo)</h3>
+    <p>Plan: Admin / Engineer / Viewer</p>
+    <p>Current mode: Demo only</p>
 </div>
 """, unsafe_allow_html=True)
 
-    api_payload = {
-        "platform": "PetroScope",
-        "selected_well": selected_well,
-        "well_status": ai_pack["well_class"],
-        "health_score": ai_pack["health_score"],
-        "risks": ai_pack["risks"],
-        "best_decline_model": best_decline_name,
-    }
-
-    st.markdown("### API Preview")
-    st.code(json.dumps(api_payload, indent=2), language="json")
+    with b2:
+        api_payload = {
+            "platform": "Petroleum AI Platform",
+            "selected_well": selected_well,
+            "well_class": ai_pack["well_class"],
+            "health_score": ai_pack["health_score"],
+            "risks": ai_pack["risks"],
+            "best_decline_model": best_decline_name,
+        }
+        st.markdown("### API Payload Preview")
+        st.code(json.dumps(api_payload, indent=2), language="json")
 
     st.markdown("""
 <div class="footer-box">
-    Built by Abbas • Petroleum Engineering • PetroScope Internal Build
+    Developed by Abbas • Petroleum Engineering • Integrated Petroleum AI Platform
 </div>
 """, unsafe_allow_html=True)
 
