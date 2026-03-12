@@ -14,7 +14,7 @@ st.set_page_config(
     layout="wide",
 )
 
-# ---------- Professional Clean Theme ----------
+# ---------- Professional Theme ----------
 st.markdown("""
 <style>
 :root{
@@ -29,6 +29,7 @@ st.markdown("""
     --accent:#4da3ff;
     --accent2:#2dd4bf;
     --gold:#ffd166;
+    --danger:#ff6b6b;
     --border:rgba(255,255,255,.10);
     --shadow:0 18px 42px rgba(0,0,0,.20);
 }
@@ -137,12 +138,6 @@ html, body, [class*="css"] {
     line-height:1.75;
 }
 
-.small-note{
-    color: var(--muted);
-    line-height: 1.8;
-    font-size: 1rem;
-}
-
 .rank-box{
     background: linear-gradient(180deg, rgba(31,53,89,.96), rgba(17,29,52,.96));
     border:1px solid var(--border);
@@ -158,6 +153,19 @@ html, body, [class*="css"] {
     border-radius:18px;
     background: rgba(12,19,36,.72);
     border:1px solid rgba(255,255,255,.08);
+}
+
+.ai-box{
+    background: linear-gradient(180deg, rgba(26,45,76,.98), rgba(17,29,52,.96));
+    border:1px solid rgba(77,163,255,.25);
+    border-radius:18px;
+    padding:1rem;
+}
+
+.small-note{
+    color: var(--muted);
+    line-height: 1.8;
+    font-size: 1rem;
 }
 
 /* tabs */
@@ -186,7 +194,7 @@ div.stButton > button, div.stDownloadButton > button{
     color:#07111f;
 }
 
-/* make inputs readable */
+/* inputs readable */
 .stSelectbox div[data-baseweb="select"] > div,
 .stMultiSelect div[data-baseweb="select"] > div{
     background:#ffffff !important;
@@ -200,18 +208,15 @@ div.stButton > button, div.stDownloadButton > button{
     color:#111827 !important;
 }
 
-/* radio */
 div[role="radiogroup"] label{
     color:white !important;
 }
 
-/* dataframe container */
 div[data-testid="stDataFrame"]{
     border-radius: 16px;
     overflow: hidden;
 }
 
-/* responsive */
 @media (max-width: 900px){
     .info-grid{
         grid-template-columns: 1fr;
@@ -377,65 +382,138 @@ def forecast_from_decline(time_vals, q_vals, periods=12):
 
     return best_name, future_t, pred, results
 
+def rank_wells(df, well_col, production_col):
+    grp = df.groupby(well_col)[production_col].agg(["mean", "max", "min", "count"]).reset_index()
+    grp.columns = [well_col, "Average_Production", "Max_Production", "Min_Production", "Records"]
+    grp = grp.sort_values("Average_Production", ascending=False).reset_index(drop=True)
+    grp["Rank"] = np.arange(1, len(grp) + 1)
+    return grp
+
+def missing_values_summary(df):
+    missing = df.isna().sum()
+    result = pd.DataFrame({
+        "Column": missing.index,
+        "Missing_Values": missing.values,
+        "Missing_Percentage": (missing.values / len(df)) * 100
+    }).sort_values("Missing_Values", ascending=False)
+    return result
+
+def correlation_data(df, mapping):
+    cols = []
+    for key in ["production", "pressure", "water_cut", "gor"]:
+        col = mapping.get(key)
+        if col:
+            cols.append(col)
+    if len(cols) < 2:
+        return None
+    corr_df = df[cols].apply(pd.to_numeric, errors="coerce")
+    return corr_df.corr()
+
 def ai_summary(df, mapping):
     insights, recs = [], []
+
     prod_col = mapping.get("production")
     press_col = mapping.get("pressure")
     wc_col = mapping.get("water_cut")
     gor_col = mapping.get("gor")
 
-    if prod_col:
-        prod = pd.to_numeric(df[prod_col], errors="coerce").dropna()
-        if len(prod) >= 5:
-            slope = float(LinearRegression().fit(np.arange(len(prod)).reshape(-1, 1), prod.values).coef_[0])
-            if slope < 0:
-                insights.append(f"Production is declining by about {abs(slope):.2f} units per record.")
-                recs.append("The well may be experiencing natural depletion and should be reviewed using decline diagnostics.")
-            elif slope > 0:
-                insights.append(f"Production is increasing by about {slope:.2f} units per record.")
-                recs.append("Production uplift may indicate operational improvement or stimulation effect.")
+    prod = pd.to_numeric(df[prod_col], errors="coerce") if prod_col else pd.Series(dtype=float)
+    press = pd.to_numeric(df[press_col], errors="coerce") if press_col else pd.Series(dtype=float)
+    wc = pd.to_numeric(df[wc_col], errors="coerce") if wc_col else pd.Series(dtype=float)
+    gor = pd.to_numeric(df[gor_col], errors="coerce") if gor_col else pd.Series(dtype=float)
 
-            n_out = int(detect_outliers_iqr(df[prod_col]).fillna(False).sum())
-            if n_out:
-                insights.append(f"{n_out} possible production outlier(s) detected.")
-                recs.append("Abnormal production points should be validated before using the dataset for engineering decisions.")
+    well_class = "Unclassified"
 
-    if press_col:
-        p = pd.to_numeric(df[press_col], errors="coerce").dropna()
-        if len(p) >= 5:
-            slope = float(LinearRegression().fit(np.arange(len(p)).reshape(-1, 1), p.values).coef_[0])
-            if slope < 0:
-                insights.append(f"Pressure is declining by about {abs(slope):.2f} units per record.")
-                recs.append("Pressure support or depletion management may need evaluation.")
+    if len(prod.dropna()) >= 5:
+        prod_clean = prod.dropna()
+        prod_start, prod_end = prod_clean.iloc[0], prod_clean.iloc[-1]
+        prod_change = prod_end - prod_start
+        prod_pct = (prod_change / prod_start) * 100 if prod_start != 0 else 0
 
-    if wc_col:
-        wc = pd.to_numeric(df[wc_col], errors="coerce").dropna()
-        if len(wc) >= 5:
-            slope = float(LinearRegression().fit(np.arange(len(wc)).reshape(-1, 1), wc.values).coef_[0])
-            if slope > 0:
-                insights.append(f"Water cut is increasing by {slope:.4f} per record.")
-                recs.append("Rising water cut may indicate water breakthrough, coning, or sweep changes.")
+        if prod_change < 0:
+            insights.append(f"Production declined by {abs(prod_pct):.1f}% over the analyzed period.")
+            recs.append("Review production decline against expected reservoir and operational performance.")
+        else:
+            insights.append(f"Production increased by {prod_pct:.1f}% over the analyzed period.")
 
-    if gor_col:
-        gor = pd.to_numeric(df[gor_col], errors="coerce").dropna()
-        if len(gor) >= 5:
-            slope = float(LinearRegression().fit(np.arange(len(gor)).reshape(-1, 1), gor.values).coef_[0])
-            if slope > 0:
-                insights.append(f"GOR is increasing by {slope:.2f} units per record.")
-                recs.append("Gas behavior should be reviewed to assess depletion and phase-performance changes.")
+        slope = float(LinearRegression().fit(np.arange(len(prod_clean)).reshape(-1, 1), prod_clean.values).coef_[0])
+        if slope < -5:
+            insights.append("The well shows a strong negative production trend.")
+        elif slope < 0:
+            insights.append("The well shows a mild production decline.")
+        else:
+            insights.append("The well shows stable to improving production behavior.")
 
-    if not insights:
-        insights.append("Not enough mapped data for strong AI-style interpretation yet.")
+        n_out = int(detect_outliers_iqr(prod).fillna(False).sum())
+        if n_out > 0:
+            insights.append(f"{n_out} production anomaly point(s) detected.")
+            recs.append("Validate unusual production spikes or drops before final engineering interpretation.")
+
+    wc_change = 0
+    gor_change = 0
+
+    if len(press.dropna()) >= 5:
+        press_clean = press.dropna()
+        press_start, press_end = press_clean.iloc[0], press_clean.iloc[-1]
+        press_change = press_end - press_start
+        if press_change < 0:
+            insights.append(f"Reservoir pressure decreased by {abs(press_change):.1f} units.")
+            recs.append("Evaluate depletion management and pressure support conditions.")
+
+    if len(wc.dropna()) >= 5:
+        wc_clean = wc.dropna()
+        wc_start, wc_end = wc_clean.iloc[0], wc_clean.iloc[-1]
+        wc_change = wc_end - wc_start
+        if wc_change > 0.03:
+            insights.append(f"Water cut increased by {wc_change:.3f}, indicating stronger water influence.")
+            recs.append("Investigate potential water breakthrough, coning, or sweep changes.")
+        elif wc_change > 0:
+            insights.append("Water cut is rising gradually.")
+
+    if len(gor.dropna()) >= 5:
+        gor_clean = gor.dropna()
+        gor_start, gor_end = gor_clean.iloc[0], gor_clean.iloc[-1]
+        gor_change = gor_end - gor_start
+        if gor_change > 30:
+            insights.append(f"GOR increased by {gor_change:.1f}, suggesting stronger gas contribution.")
+            recs.append("Review gas behavior, depletion effects, and possible gas breakthrough.")
+        elif gor_change > 0:
+            insights.append("GOR is trending upward slightly.")
+
+    if len(prod.dropna()) >= 5 and len(press.dropna()) >= 5:
+        tmp = pd.DataFrame({"prod": prod, "press": press}).dropna()
+        if len(tmp) >= 5:
+            corr = tmp["prod"].corr(tmp["press"])
+            insights.append(f"Production-pressure correlation = {corr:.2f}.")
+            if corr > 0.5:
+                recs.append("Production appears strongly linked to pressure depletion behavior.")
+
+    if len(prod.dropna()) >= 5:
+        prod_change = prod.dropna().iloc[-1] - prod.dropna().iloc[0]
+
+        if prod_change < 0 and wc_change > 0.03:
+            well_class = "Water-Risk Well"
+        elif prod_change < 0 and gor_change > 30:
+            well_class = "Gas-Risk Well"
+        elif prod_change < 0:
+            well_class = "Declining Well"
+        else:
+            well_class = "Stable / Improving Well"
+
+    insights.append(f"AI well classification: {well_class}.")
+
     if not recs:
-        recs.append("Upload richer time-series well data or use the demo dataset.")
+        recs.append("Continue monitoring with more historical data for stronger AI interpretation.")
 
-    return insights, recs
+    return insights, recs, well_class
 
-def text_report(df, mapping, selected_well, insights, recs, best_decline_name=None):
+def text_report(df, mapping, selected_well, insights, recs, best_decline_name=None, well_class=None):
     lines = ["Petroleum Data Analysis with AI - Engineering Report", "=" * 55]
     lines.append(f"Rows analyzed: {len(df)}")
     if selected_well is not None:
         lines.append(f"Selected well: {selected_well}")
+    if well_class:
+        lines.append(f"AI well classification: {well_class}")
     lines.append("")
     lines.append("Mapped columns:")
     for k, v in mapping.items():
@@ -453,22 +531,14 @@ def text_report(df, mapping, selected_well, insights, recs, best_decline_name=No
         lines.append(f"* {item}")
     return "\n".join(lines)
 
-def rank_wells(df, well_col, production_col):
-    grp = df.groupby(well_col)[production_col].agg(["mean", "max", "min", "count"]).reset_index()
-    grp.columns = [well_col, "Average_Production", "Max_Production", "Min_Production", "Records"]
-    grp = grp.sort_values("Average_Production", ascending=False).reset_index(drop=True)
-    grp["Rank"] = np.arange(1, len(grp) + 1)
-    return grp
-
 # ---------- Header ----------
 st.markdown("""
 <div class="hero">
-  <div class="badge">Version 6 • Petroleum Analytics Platform</div>
+  <div class="badge">Version 7 • AI Petroleum Data Scientist</div>
   <div class="main-title">Petroleum Data Analysis with AI</div>
   <div class="sub-title">
-    A petroleum engineering analytics platform for production trend interpretation,
-    pressure behavior review, well ranking, decline curve analysis, anomaly screening,
-    and AI-assisted engineering reporting.
+    An AI-oriented petroleum data science platform for trend interpretation, well comparison,
+    anomaly detection, decline diagnostics, correlation review, and engineering reporting.
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -478,16 +548,16 @@ st.markdown("""
   <h3 style="margin-top:0;">Why This Platform Matters</h3>
   <div class="info-grid">
     <div class="info-box">
-      <h4>Reservoir Performance Analytics</h4>
-      <p>Transforms raw petroleum datasets into interpretable production and pressure trends for engineering review.</p>
+      <h4>Petroleum Data Science Workflow</h4>
+      <p>Transforms structured well data into analytical outputs through visualization, anomaly screening, and AI-style interpretation.</p>
     </div>
     <div class="info-box">
-      <h4>Operational Decision Support</h4>
-      <p>Highlights abnormal behavior, compares well performance, and supports faster technical interpretation.</p>
+      <h4>Operational Intelligence</h4>
+      <p>Supports production review, water and gas risk tracking, and comparative assessment across wells.</p>
     </div>
     <div class="info-box">
-      <h4>Student & Engineer Ready</h4>
-      <p>Built to demonstrate practical petroleum data analytics using AI-style insights in a professional dashboard format.</p>
+      <h4>Portfolio-Ready Engineering Tool</h4>
+      <p>Demonstrates applied petroleum analytics using data science concepts in a clean professional dashboard.</p>
     </div>
   </div>
 </div>
@@ -496,7 +566,6 @@ st.markdown("""
 # ---------- Controls ----------
 st.markdown('<div class="section-card">', unsafe_allow_html=True)
 st.subheader("Start Analysis")
-
 ctrl1, ctrl2 = st.columns([1.05, 1.45])
 
 with ctrl1:
@@ -512,6 +581,7 @@ with ctrl2:
         st.caption("Supported: CSV, Excel, TXT, JSON")
     else:
         st.info("Demo petroleum dataset is active.")
+
 st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown("""
@@ -520,15 +590,15 @@ st.markdown("""
   <div class="info-grid">
     <div class="info-box">
       <h4>1. Load Data</h4>
-      <p>Upload a real petroleum dataset or begin with the built-in demo data.</p>
+      <p>Upload a real petroleum dataset or start with the built-in demo data.</p>
     </div>
     <div class="info-box">
       <h4>2. Map Columns</h4>
       <p>Select engineering columns such as time, production, pressure, water cut, and GOR.</p>
     </div>
     <div class="info-box">
-      <h4>3. Review Results</h4>
-      <p>Explore trends, compare wells, check rankings, inspect decline behavior, and export a report.</p>
+      <h4>3. Generate Insights</h4>
+      <p>Review charts, compare wells, inspect AI classification, evaluate correlations, and export the report.</p>
     </div>
   </div>
 </div>
@@ -572,26 +642,26 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "Data Preview",
     "Column Mapping",
     "Analytics",
-    "Forecast & AI",
+    "AI Data Scientist",
     "Reports"
 ])
 
 with tab1:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("Platform Overview")
+    st.subheader("Overview")
     st.markdown("""
 <div class="info-grid">
   <div class="info-box">
-    <h4>Supported Engineering Inputs</h4>
-    <p>Time, well name, production, pressure, water cut, and GOR columns can be mapped for structured analysis.</p>
+    <h4>Supported Inputs</h4>
+    <p>Structured petroleum datasets with time, production, pressure, water cut, GOR, and well identifiers.</p>
   </div>
   <div class="info-box">
-    <h4>Analysis Scope</h4>
-    <p>The platform performs visual analytics, well comparison, production anomaly screening, decline analysis, and forecasting.</p>
+    <h4>Data Science Features</h4>
+    <p>Includes anomaly screening, correlation review, decline analysis, well ranking, and AI-style classification.</p>
   </div>
   <div class="info-box">
-    <h4>Output Value</h4>
-    <p>Users can generate AI-style engineering observations and export a simple petroleum report for academic or technical use.</p>
+    <h4>Engineering Outputs</h4>
+    <p>Provides practical decision-support style summaries suitable for academic and technical presentation.</p>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -661,11 +731,11 @@ if mapping["well"]:
         df = df[df[mapping["well"]].astype(str) == selected_well].copy()
 
 best_decline_name = None
-insights, recs = [], []
+insights, recs, well_class = [], [], "Unclassified"
 
 with tab4:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("Visual Analytics")
+    st.subheader("Analytics")
 
     a, b = st.columns(2)
     if mapping["production"]:
@@ -729,15 +799,6 @@ with tab4:
 
         st.dataframe(ranking_df, use_container_width=True)
 
-        fig_rank = px.bar(
-            ranking_df,
-            x=mapping["well"],
-            y="Average_Production",
-            title="Average Production Ranking",
-            template="plotly_dark"
-        )
-        st.plotly_chart(fig_rank, use_container_width=True)
-
     if mapping["production"]:
         st.markdown("---")
         st.subheader("Production Anomaly Detection")
@@ -755,11 +816,29 @@ with tab4:
         )
         st.plotly_chart(fig, use_container_width=True)
 
+    st.markdown("---")
+    st.subheader("Missing Values Summary")
+    miss_df = missing_values_summary(df)
+    st.dataframe(miss_df, use_container_width=True)
+
+    corr = correlation_data(df, mapping)
+    if corr is not None:
+        st.markdown("---")
+        st.subheader("Correlation Matrix")
+        fig_corr = px.imshow(
+            corr,
+            text_auto=True,
+            color_continuous_scale="Blues",
+            aspect="auto",
+            title="Correlation Matrix"
+        )
+        st.plotly_chart(fig_corr, use_container_width=True)
+
     st.markdown('</div>', unsafe_allow_html=True)
 
 with tab5:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("AI Reservoir Insights + Forecast")
+    st.subheader("AI Petroleum Data Scientist")
 
     if mapping["production"]:
         x_num, dt_values = time_to_numeric(df[mapping["time"]])
@@ -809,26 +888,49 @@ with tab5:
                 fig2.update_layout(template="plotly_dark", title="Production Forecast")
                 st.plotly_chart(fig2, use_container_width=True)
 
-    insights, recs = ai_summary(df, mapping)
+    insights, recs, well_class = ai_summary(df, mapping)
+
+    class_col, kpi_col = st.columns([1.2, 1])
+    with class_col:
+        st.markdown(f"""
+<div class="ai-box">
+    <h3 style="margin-top:0;">AI Well Classification</h3>
+    <p style="font-size:1.2rem;font-weight:700;color:white;margin-bottom:0;">{well_class}</p>
+</div>
+""", unsafe_allow_html=True)
+
+    with kpi_col:
+        outlier_count = 0
+        if mapping.get("production"):
+            outlier_count = int(detect_outliers_iqr(df[mapping["production"]]).fillna(False).sum())
+        st.markdown(f"""
+<div class="ai-box">
+    <h3 style="margin-top:0;">AI Data Summary</h3>
+    <p style="margin:0;color:#d8e4ff;">Rows analyzed: <b>{len(df)}</b></p>
+    <p style="margin:0;color:#d8e4ff;">Anomalies detected: <b>{outlier_count}</b></p>
+    <p style="margin:0;color:#d8e4ff;">Best decline model: <b>{best_decline_name if best_decline_name else "-"}</b></p>
+</div>
+""", unsafe_allow_html=True)
+
     left, right = st.columns(2)
 
     with left:
-        st.subheader("AI Reservoir Insights")
+        st.subheader("AI Insights")
         for item in insights:
             st.write("• " + item)
 
     with right:
-        st.subheader("Engineering Recommendations")
+        st.subheader("Recommended Actions")
         for item in recs:
             st.write("• " + item)
 
     st.markdown("""
 <div class="section-card" style="margin-top:1rem;">
-  <h3 style="margin-top:0;">About This Project</h3>
+  <h3 style="margin-top:0;">AI Summary Box</h3>
   <p class="small-note">
-    This petroleum analytics platform was designed to demonstrate how AI-assisted data interpretation
-    can support production trend evaluation, decline diagnostics, and engineering reporting
-    in a clean dashboard environment suitable for academic and technical presentation.
+    This module behaves like an early-stage petroleum data scientist assistant. It reviews production decline,
+    pressure depletion, water-cut growth, GOR movement, anomalies, and basic cross-variable relationships
+    to produce a structured engineering interpretation.
   </p>
 </div>
 """, unsafe_allow_html=True)
@@ -839,7 +941,7 @@ with tab6:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("Reports")
 
-    report = text_report(df, mapping, selected_well, insights, recs, best_decline_name)
+    report = text_report(df, mapping, selected_well, insights, recs, best_decline_name, well_class)
 
     st.download_button(
         "Download engineering report (.txt)",
@@ -857,7 +959,7 @@ with tab6:
 
     st.markdown("""
 <div class="footer-box">
-    Developed by Abbas • Petroleum Engineering • AI Analytics Platform
+    Developed by Abbas • Petroleum Engineering • AI Petroleum Data Scientist Platform
 </div>
 """, unsafe_allow_html=True)
 
