@@ -238,42 +238,63 @@ SYNONYMS = {
     "gor": ["gor", "gas_oil_ratio", "g_o_r", "gasoilratio"]
 }
 
+# ---------- Data helpers ----------
 def demo_dataset():
     np.random.seed(42)
-    days = np.arange(1, 61)
-    wells = ["Well_A", "Well_B", "Well_C"]
+    days = np.arange(1, 91)
+    wells = ["Well_A", "Well_B", "Well_C", "Well_D"]
     rows = []
+
     for i, well in enumerate(wells):
-        base_q = 1500 - i * 220
-        base_p = 3600 - i * 130
-        wc = 0.08 + i * 0.025
-        gor = 420 + i * 30
+        base_q = 1600 - i * 220
+        base_p = 3700 - i * 110
+        wc = 0.07 + i * 0.02
+        gor = 420 + i * 25
+
         for d in days:
-            q = base_q * np.exp(-0.016 * d) + np.random.normal(0, 22)
-            p = base_p - 7.5 * d + np.random.normal(0, 9)
-            water = wc + 0.0025 * d + np.random.normal(0, 0.003)
-            gas = gor + 2.1 * d + np.random.normal(0, 6)
-            rows.append([well, d, max(q, 30), max(p, 1000), max(min(water, 0.95), 0), max(gas, 0)])
+            q = base_q * np.exp(-0.013 * d) + np.random.normal(0, 18)
+            p = base_p - 5.8 * d + np.random.normal(0, 7)
+            water = wc + 0.0018 * d + np.random.normal(0, 0.0025)
+            gas = gor + 1.7 * d + np.random.normal(0, 5)
+
+            rows.append([
+                well,
+                d,
+                max(q, 20),
+                max(p, 900),
+                max(min(water, 0.95), 0),
+                max(gas, 0)
+            ])
+
     df = pd.DataFrame(rows, columns=["Well", "Day", "Production", "Pressure", "WaterCut", "GOR"])
-    df.loc[20, "Production"] = 2400
+
+    # inject a few anomalies
+    df.loc[25, "Production"] = df.loc[25, "Production"] * 1.7
+    df.loc[170, "Production"] = df.loc[170, "Production"] * 0.4
+
     return df
 
 def load_uploaded_file(uploaded_file):
     suffix = Path(uploaded_file.name).suffix.lower()
     if suffix not in SUPPORTED:
         raise ValueError(f"Unsupported file type: {suffix}")
+
     if suffix == ".csv":
         return pd.read_csv(uploaded_file)
+
     if suffix in [".xlsx", ".xls"]:
         return pd.read_excel(uploaded_file)
+
     if suffix == ".txt":
         content = uploaded_file.getvalue().decode("utf-8", errors="ignore")
         try:
             return pd.read_csv(io.StringIO(content))
         except Exception:
             return pd.read_csv(io.StringIO(content), sep="\t")
+
     if suffix == ".json":
         return pd.read_json(uploaded_file)
+
     raise ValueError("Unable to read file")
 
 def normalize_name(name: str) -> str:
@@ -282,16 +303,19 @@ def normalize_name(name: str) -> str:
 def auto_detect_columns(df: pd.DataFrame):
     normalized = {c: normalize_name(c) for c in df.columns}
     detected = {"time": None, "well": None, "production": None, "pressure": None, "water_cut": None, "gor": None}
+
     for role, names in SYNONYMS.items():
         for col, norm in normalized.items():
             if any(s in norm for s in names):
                 detected[role] = col
                 break
+
     num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
     if detected["production"] is None and num_cols:
         detected["production"] = num_cols[0]
     if detected["pressure"] is None and len(num_cols) > 1:
         detected["pressure"] = num_cols[1]
+
     return detected
 
 def time_to_numeric(series):
@@ -300,9 +324,11 @@ def time_to_numeric(series):
         base = dt.min()
         x = (dt - base).dt.total_seconds() / 86400.0
         return x.values, dt
+
     num = pd.to_numeric(series, errors="coerce")
     if num.notna().sum() == len(series):
         return num.values.astype(float), None
+
     return np.arange(len(series), dtype=float), None
 
 def detect_outliers_iqr(series):
@@ -310,77 +336,11 @@ def detect_outliers_iqr(series):
     valid = s.dropna()
     if len(valid) < 5:
         return pd.Series(False, index=series.index)
+
     q1, q3 = valid.quantile(0.25), valid.quantile(0.75)
     iqr = q3 - q1
     lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
     return (s < lo) | (s > hi)
-
-def fit_decline_models(time_vals, q_vals):
-    t = np.asarray(time_vals, dtype=float)
-    q = np.asarray(q_vals, dtype=float)
-    mask = np.isfinite(t) & np.isfinite(q) & (q > 0)
-    t = t[mask]
-    q = q[mask]
-    if len(q) < 5:
-        return None
-
-    q0 = q[0]
-
-    lnq = np.log(q)
-    exp_model = LinearRegression().fit(t.reshape(-1, 1), lnq)
-    D_exp = max(1e-9, -float(exp_model.coef_[0]))
-    qhat_exp = q0 * np.exp(-D_exp * (t - t[0]))
-    rmse_exp = float(np.sqrt(np.mean((q - qhat_exp) ** 2)))
-
-    y_h = (q0 / q) - 1.0
-    harm_model = LinearRegression().fit(t.reshape(-1, 1), y_h)
-    D_harm = max(1e-9, float(harm_model.coef_[0]))
-    qhat_harm = q0 / (1 + D_harm * (t - t[0]))
-    rmse_harm = float(np.sqrt(np.mean((q - qhat_harm) ** 2)))
-
-    best = None
-    for b in np.arange(0.1, 1.6, 0.1):
-        y = (q0 / q) ** b - 1.0
-        model = LinearRegression().fit(t.reshape(-1, 1), y)
-        D = max(1e-9, float(model.coef_[0]) / b)
-        qhat = q0 / np.power(1 + b * D * (t - t[0]), 1.0 / b)
-        rmse = float(np.sqrt(np.mean((q - qhat) ** 2)))
-        if best is None or rmse < best["rmse"]:
-            best = {"b": float(b), "D": float(D), "qhat": qhat, "rmse": rmse}
-
-    results = {
-        "Exponential": {"rmse": rmse_exp, "qhat": qhat_exp, "D": D_exp},
-        "Harmonic": {"rmse": rmse_harm, "qhat": qhat_harm, "D": D_harm},
-        "Hyperbolic": best
-    }
-    best_name = min(results.keys(), key=lambda k: results[k]["rmse"])
-    return best_name, results
-
-def forecast_from_decline(time_vals, q_vals, periods=12):
-    fit = fit_decline_models(time_vals, q_vals)
-    if fit is None:
-        return None
-    best_name, results = fit
-    t = np.asarray(time_vals, dtype=float)
-    q = np.asarray(q_vals, dtype=float)
-    mask = np.isfinite(t) & np.isfinite(q) & (q > 0)
-    t = t[mask]
-    q = q[mask]
-    q0 = q[0]
-    future_t = np.arange(t[-1] + 1, t[-1] + periods + 1, dtype=float)
-
-    if best_name == "Exponential":
-        D = results["Exponential"]["D"]
-        pred = q0 * np.exp(-D * (future_t - t[0]))
-    elif best_name == "Harmonic":
-        D = results["Harmonic"]["D"]
-        pred = q0 / (1 + D * (future_t - t[0]))
-    else:
-        b = results["Hyperbolic"]["b"]
-        D = results["Hyperbolic"]["D"]
-        pred = q0 / np.power(1 + b * D * (future_t - t[0]), 1.0 / b)
-
-    return best_name, future_t, pred, results
 
 def rank_wells(df, well_col, production_col):
     grp = df.groupby(well_col)[production_col].agg(["mean", "max", "min", "count"]).reset_index()
@@ -404,10 +364,97 @@ def correlation_data(df, mapping):
         col = mapping.get(key)
         if col:
             cols.append(col)
+
     if len(cols) < 2:
         return None
+
     corr_df = df[cols].apply(pd.to_numeric, errors="coerce")
     return corr_df.corr()
+
+# ---------- AI engine ----------
+def calculate_risk_scores(df, mapping):
+    prod_col = mapping.get("production")
+    press_col = mapping.get("pressure")
+    wc_col = mapping.get("water_cut")
+    gor_col = mapping.get("gor")
+
+    prod = pd.to_numeric(df[prod_col], errors="coerce").dropna() if prod_col else pd.Series(dtype=float)
+    press = pd.to_numeric(df[press_col], errors="coerce").dropna() if press_col else pd.Series(dtype=float)
+    wc = pd.to_numeric(df[wc_col], errors="coerce").dropna() if wc_col else pd.Series(dtype=float)
+    gor = pd.to_numeric(df[gor_col], errors="coerce").dropna() if gor_col else pd.Series(dtype=float)
+
+    water_risk = 0.0
+    gas_risk = 0.0
+    depletion_risk = 0.0
+    anomaly_risk = 0.0
+
+    if len(wc) >= 5:
+        wc_change = wc.iloc[-1] - wc.iloc[0]
+        water_risk = min(max(wc_change * 1200, 0), 100)
+
+    if len(gor) >= 5:
+        gor_change = gor.iloc[-1] - gor.iloc[0]
+        gas_risk = min(max(gor_change * 1.2, 0), 100)
+
+    if len(press) >= 5:
+        press_drop = press.iloc[0] - press.iloc[-1]
+        depletion_risk = min(max(press_drop / 8, 0), 100)
+
+    if prod_col:
+        anomalies = int(detect_outliers_iqr(df[prod_col]).fillna(False).sum())
+        anomaly_risk = min(anomalies * 15, 100)
+
+    return {
+        "water_risk": round(water_risk, 1),
+        "gas_risk": round(gas_risk, 1),
+        "depletion_risk": round(depletion_risk, 1),
+        "anomaly_risk": round(anomaly_risk, 1),
+    }
+
+def calculate_reservoir_health_score(df, mapping, risks):
+    score = 100.0
+
+    score -= risks["water_risk"] * 0.25
+    score -= risks["gas_risk"] * 0.20
+    score -= risks["depletion_risk"] * 0.25
+    score -= risks["anomaly_risk"] * 0.15
+
+    prod_col = mapping.get("production")
+    if prod_col:
+        prod = pd.to_numeric(df[prod_col], errors="coerce").dropna()
+        if len(prod) >= 5:
+            prod_decline_pct = ((prod.iloc[0] - prod.iloc[-1]) / prod.iloc[0]) * 100 if prod.iloc[0] != 0 else 0
+            score -= max(prod_decline_pct, 0) * 0.20
+
+    return max(min(round(score, 1), 100), 0)
+
+def classify_well(df, mapping, risks):
+    prod_col = mapping.get("production")
+    press_col = mapping.get("pressure")
+    wc_col = mapping.get("water_cut")
+    gor_col = mapping.get("gor")
+
+    prod = pd.to_numeric(df[prod_col], errors="coerce").dropna() if prod_col else pd.Series(dtype=float)
+    press = pd.to_numeric(df[press_col], errors="coerce").dropna() if press_col else pd.Series(dtype=float)
+    wc = pd.to_numeric(df[wc_col], errors="coerce").dropna() if wc_col else pd.Series(dtype=float)
+    gor = pd.to_numeric(df[gor_col], errors="coerce").dropna() if gor_col else pd.Series(dtype=float)
+
+    prod_change = prod.iloc[-1] - prod.iloc[0] if len(prod) >= 5 else 0
+    press_change = press.iloc[-1] - press.iloc[0] if len(press) >= 5 else 0
+    wc_change = wc.iloc[-1] - wc.iloc[0] if len(wc) >= 5 else 0
+    gor_change = gor.iloc[-1] - gor.iloc[0] if len(gor) >= 5 else 0
+
+    if risks["anomaly_risk"] >= 45:
+        return "Data-Anomaly Well"
+    if prod_change < 0 and wc_change > 0.03 and risks["water_risk"] >= 40:
+        return "Water-Risk Well"
+    if prod_change < 0 and gor_change > 30 and risks["gas_risk"] >= 40:
+        return "Gas-Risk Well"
+    if prod_change < 0 and press_change < 0 and risks["depletion_risk"] >= 35:
+        return "Pressure-Depletion Well"
+    if prod_change < 0:
+        return "Declining Well"
+    return "Stable / Improving Well"
 
 def ai_summary(df, mapping):
     insights, recs = [], []
@@ -422,142 +469,206 @@ def ai_summary(df, mapping):
     wc = pd.to_numeric(df[wc_col], errors="coerce") if wc_col else pd.Series(dtype=float)
     gor = pd.to_numeric(df[gor_col], errors="coerce") if gor_col else pd.Series(dtype=float)
 
-    well_class = "Unclassified"
+    prod_clean = prod.dropna()
+    press_clean = press.dropna()
+    wc_clean = wc.dropna()
+    gor_clean = gor.dropna()
 
-    if len(prod.dropna()) >= 5:
-        prod_clean = prod.dropna()
+    risks = calculate_risk_scores(df, mapping)
+    health_score = calculate_reservoir_health_score(df, mapping, risks)
+    well_class = classify_well(df, mapping, risks)
+
+    prod_pct = 0
+    if len(prod_clean) >= 5:
         prod_start, prod_end = prod_clean.iloc[0], prod_clean.iloc[-1]
         prod_change = prod_end - prod_start
         prod_pct = (prod_change / prod_start) * 100 if prod_start != 0 else 0
 
         if prod_change < 0:
             insights.append(f"Production declined by {abs(prod_pct):.1f}% over the analyzed period.")
-            recs.append("Review production decline against expected reservoir and operational performance.")
+            recs.append("Review decline behavior against expected field and reservoir performance.")
         else:
             insights.append(f"Production increased by {prod_pct:.1f}% over the analyzed period.")
 
         slope = float(LinearRegression().fit(np.arange(len(prod_clean)).reshape(-1, 1), prod_clean.values).coef_[0])
-        if slope < -5:
-            insights.append("The well shows a strong negative production trend.")
+        if slope < -10:
+            insights.append("Production trend severity: severe decline.")
+        elif slope < -3:
+            insights.append("Production trend severity: moderate decline.")
         elif slope < 0:
-            insights.append("The well shows a mild production decline.")
+            insights.append("Production trend severity: mild decline.")
         else:
-            insights.append("The well shows stable to improving production behavior.")
+            insights.append("Production trend severity: stable to improving.")
 
-        n_out = int(detect_outliers_iqr(prod).fillna(False).sum())
+        n_out = int(detect_outliers_iqr(df[prod_col]).fillna(False).sum())
         if n_out > 0:
             insights.append(f"{n_out} production anomaly point(s) detected.")
-            recs.append("Validate unusual production spikes or drops before final engineering interpretation.")
+            recs.append("Validate abnormal spikes or drops before engineering decisions.")
 
     wc_change = 0
     gor_change = 0
 
-    if len(press.dropna()) >= 5:
-        press_clean = press.dropna()
-        press_start, press_end = press_clean.iloc[0], press_clean.iloc[-1]
-        press_change = press_end - press_start
-        if press_change < 0:
-            insights.append(f"Reservoir pressure decreased by {abs(press_change):.1f} units.")
-            recs.append("Evaluate depletion management and pressure support conditions.")
+    if len(press_clean) >= 5:
+        press_drop = press_clean.iloc[0] - press_clean.iloc[-1]
+        if press_drop > 0:
+            insights.append(f"Reservoir pressure dropped by {press_drop:.1f} units.")
+            recs.append("Evaluate depletion support and pressure maintenance conditions.")
 
-    if len(wc.dropna()) >= 5:
-        wc_clean = wc.dropna()
-        wc_start, wc_end = wc_clean.iloc[0], wc_clean.iloc[-1]
-        wc_change = wc_end - wc_start
+    if len(wc_clean) >= 5:
+        wc_change = wc_clean.iloc[-1] - wc_clean.iloc[0]
         if wc_change > 0.03:
             insights.append(f"Water cut increased by {wc_change:.3f}, indicating stronger water influence.")
-            recs.append("Investigate potential water breakthrough, coning, or sweep changes.")
+            recs.append("Investigate possible water breakthrough, coning, or sweep changes.")
         elif wc_change > 0:
             insights.append("Water cut is rising gradually.")
 
-    if len(gor.dropna()) >= 5:
-        gor_clean = gor.dropna()
-        gor_start, gor_end = gor_clean.iloc[0], gor_clean.iloc[-1]
-        gor_change = gor_end - gor_start
+    if len(gor_clean) >= 5:
+        gor_change = gor_clean.iloc[-1] - gor_clean.iloc[0]
         if gor_change > 30:
             insights.append(f"GOR increased by {gor_change:.1f}, suggesting stronger gas contribution.")
-            recs.append("Review gas behavior, depletion effects, and possible gas breakthrough.")
+            recs.append("Review gas behavior, phase changes, and breakthrough risk.")
         elif gor_change > 0:
             insights.append("GOR is trending upward slightly.")
 
-    if len(prod.dropna()) >= 5 and len(press.dropna()) >= 5:
-        tmp = pd.DataFrame({"prod": prod, "press": press}).dropna()
+    if len(prod_clean) >= 5 and len(press_clean) >= 5:
+        tmp = pd.DataFrame({"prod": prod_clean.reset_index(drop=True), "press": press_clean.reset_index(drop=True)}).dropna()
         if len(tmp) >= 5:
             corr = tmp["prod"].corr(tmp["press"])
             insights.append(f"Production-pressure correlation = {corr:.2f}.")
             if corr > 0.5:
                 recs.append("Production appears strongly linked to pressure depletion behavior.")
 
-    if len(prod.dropna()) >= 5:
-        prod_change = prod.dropna().iloc[-1] - prod.dropna().iloc[0]
-
-        if prod_change < 0 and wc_change > 0.03:
-            well_class = "Water-Risk Well"
-        elif prod_change < 0 and gor_change > 30:
-            well_class = "Gas-Risk Well"
-        elif prod_change < 0:
-            well_class = "Declining Well"
-        else:
-            well_class = "Stable / Improving Well"
+    # Smart cross logic
+    if len(prod_clean) >= 5:
+        if prod_pct < 0 and wc_change > 0.03:
+            insights.append("Smart AI logic: decline pattern is consistent with water breakthrough risk.")
+        if prod_pct < 0 and gor_change > 30:
+            insights.append("Smart AI logic: decline pattern is consistent with gas breakthrough risk.")
+        if prod_pct < 0 and len(press_clean) >= 5 and (press_clean.iloc[-1] < press_clean.iloc[0]):
+            insights.append("Smart AI logic: production decline is likely depletion-driven.")
+        if prod_pct < 0 and len(press_clean) >= 5 and abs(press_clean.iloc[-1] - press_clean.iloc[0]) < 10:
+            insights.append("Smart AI logic: production decline with nearly stable pressure may suggest operational or formation-related issues.")
 
     insights.append(f"AI well classification: {well_class}.")
+    insights.append(f"Reservoir health score: {health_score}/100.")
+    insights.append(
+        f"Risk scores → Water: {risks['water_risk']}, Gas: {risks['gas_risk']}, Depletion: {risks['depletion_risk']}, Data quality: {risks['anomaly_risk']}."
+    )
 
     if not recs:
         recs.append("Continue monitoring with more historical data for stronger AI interpretation.")
 
-    return insights, recs, well_class
+    return insights, recs, well_class, risks, health_score
 
-def text_report(df, mapping, selected_well, insights, recs, best_decline_name=None, well_class=None):
-    lines = ["Petroleum Data Analysis with AI - Engineering Report", "=" * 55]
+def predictive_ai(df, mapping):
+    results = {}
+
+    for key in ["production", "pressure", "water_cut", "gor"]:
+        col = mapping.get(key)
+        time_col = mapping.get("time")
+
+        if not col or not time_col:
+            continue
+
+        x, _ = time_to_numeric(df[time_col])
+        y = pd.to_numeric(df[col], errors="coerce").values
+
+        mask = np.isfinite(x) & np.isfinite(y)
+        x_clean = x[mask]
+        y_clean = y[mask]
+
+        if len(x_clean) < 5:
+            continue
+
+        model = LinearRegression()
+        model.fit(x_clean.reshape(-1, 1), y_clean)
+
+        horizon = 30
+        future_x = np.arange(x_clean[-1] + 1, x_clean[-1] + horizon + 1)
+        pred = model.predict(future_x.reshape(-1, 1))
+
+        results[key] = {
+            "future_x": future_x,
+            "pred": pred,
+            "historical_x": x_clean,
+            "historical_y": y_clean,
+            "slope": float(model.coef_[0]),
+            "horizon": horizon,
+        }
+
+    return results
+
+def generate_ai_report(df, mapping, selected_well, insights, recs, best_decline_name, well_class, risks, health_score):
+    lines = []
+    lines.append("AI PETROLEUM DATA SCIENTIST REPORT")
+    lines.append("=" * 60)
     lines.append(f"Rows analyzed: {len(df)}")
     if selected_well is not None:
         lines.append(f"Selected well: {selected_well}")
-    if well_class:
-        lines.append(f"AI well classification: {well_class}")
+    lines.append(f"AI well classification: {well_class}")
+    lines.append(f"Reservoir health score: {health_score}/100")
+    if best_decline_name:
+        lines.append(f"Best decline model: {best_decline_name}")
     lines.append("")
-    lines.append("Mapped columns:")
+
+    lines.append("Mapped Columns:")
     for k, v in mapping.items():
         if v:
             lines.append(f"- {k}: {v}")
-    if best_decline_name:
-        lines.append(f"- Best decline model: {best_decline_name}")
+
+    lines.append("")
+    lines.append("Risk Scores:")
+    lines.append(f"- Water breakthrough risk: {risks['water_risk']}/100")
+    lines.append(f"- Gas breakthrough risk: {risks['gas_risk']}/100")
+    lines.append(f"- Pressure depletion risk: {risks['depletion_risk']}/100")
+    lines.append(f"- Data quality / anomaly risk: {risks['anomaly_risk']}/100")
+
     lines.append("")
     lines.append("AI Insights:")
     for item in insights:
         lines.append(f"* {item}")
+
     lines.append("")
-    lines.append("Recommendations:")
+    lines.append("Recommended Actions:")
     for item in recs:
         lines.append(f"* {item}")
+
+    lines.append("")
+    lines.append("Summary:")
+    lines.append(
+        "This report combines smart rule-based petroleum reasoning, statistical trend analysis, "
+        "risk scoring, and predictive diagnostics to support early-stage engineering interpretation."
+    )
+
     return "\n".join(lines)
 
 # ---------- Header ----------
 st.markdown("""
 <div class="hero">
-  <div class="badge">Version 7 • AI Petroleum Data Scientist</div>
+  <div class="badge">Version 8 • Full AI Petroleum Data Scientist Engine</div>
   <div class="main-title">Petroleum Data Analysis with AI</div>
   <div class="sub-title">
-    An AI-oriented petroleum data science platform for trend interpretation, well comparison,
-    anomaly detection, decline diagnostics, correlation review, and engineering reporting.
+    A full petroleum data science dashboard with smart AI logic, risk scoring,
+    reservoir health evaluation, predictive analytics, and AI report writing.
   </div>
 </div>
 """, unsafe_allow_html=True)
 
 st.markdown("""
 <div class="section-card">
-  <h3 style="margin-top:0;">Why This Platform Matters</h3>
+  <h3 style="margin-top:0;">What This Version Adds</h3>
   <div class="info-grid">
     <div class="info-box">
-      <h4>Petroleum Data Science Workflow</h4>
-      <p>Transforms structured well data into analytical outputs through visualization, anomaly screening, and AI-style interpretation.</p>
+      <h4>Smart AI Logic</h4>
+      <p>Connects production, pressure, water cut, and GOR behavior into practical petroleum interpretations.</p>
     </div>
     <div class="info-box">
-      <h4>Operational Intelligence</h4>
-      <p>Supports production review, water and gas risk tracking, and comparative assessment across wells.</p>
+      <h4>Risk & Health Scoring</h4>
+      <p>Quantifies water risk, gas risk, depletion risk, data-quality risk, and calculates an overall reservoir health score.</p>
     </div>
     <div class="info-box">
-      <h4>Portfolio-Ready Engineering Tool</h4>
-      <p>Demonstrates applied petroleum analytics using data science concepts in a clean professional dashboard.</p>
+      <h4>Predictive AI + Report Writer</h4>
+      <p>Forecasts core variables and writes an AI-style engineering report suitable for academic and portfolio use.</p>
     </div>
   </div>
 </div>
@@ -583,26 +694,6 @@ with ctrl2:
         st.info("Demo petroleum dataset is active.")
 
 st.markdown('</div>', unsafe_allow_html=True)
-
-st.markdown("""
-<div class="section-card">
-  <h3 style="margin-top:0;">How to Use This Platform</h3>
-  <div class="info-grid">
-    <div class="info-box">
-      <h4>1. Load Data</h4>
-      <p>Upload a real petroleum dataset or start with the built-in demo data.</p>
-    </div>
-    <div class="info-box">
-      <h4>2. Map Columns</h4>
-      <p>Select engineering columns such as time, production, pressure, water cut, and GOR.</p>
-    </div>
-    <div class="info-box">
-      <h4>3. Generate Insights</h4>
-      <p>Review charts, compare wells, inspect AI classification, evaluate correlations, and export the report.</p>
-    </div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
 
 # ---------- Load data ----------
 if source == "Use demo dataset":
@@ -642,7 +733,7 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "Data Preview",
     "Column Mapping",
     "Analytics",
-    "AI Data Scientist",
+    "AI Engine",
     "Reports"
 ])
 
@@ -652,16 +743,16 @@ with tab1:
     st.markdown("""
 <div class="info-grid">
   <div class="info-box">
-    <h4>Supported Inputs</h4>
-    <p>Structured petroleum datasets with time, production, pressure, water cut, GOR, and well identifiers.</p>
+    <h4>Smart AI Logic</h4>
+    <p>Combines trend logic and variable interaction to identify depletion, water risk, gas risk, and abnormal behavior.</p>
   </div>
   <div class="info-box">
-    <h4>Data Science Features</h4>
-    <p>Includes anomaly screening, correlation review, decline analysis, well ranking, and AI-style classification.</p>
+    <h4>Petroleum Data Science Metrics</h4>
+    <p>Includes missing-value review, correlations, anomaly count, ranking, risk scores, and health scoring.</p>
   </div>
   <div class="info-box">
-    <h4>Engineering Outputs</h4>
-    <p>Provides practical decision-support style summaries suitable for academic and technical presentation.</p>
+    <h4>AI-Ready Outputs</h4>
+    <p>Produces AI classification, predictive trends, and a structured technical report for engineering presentation.</p>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -732,6 +823,8 @@ if mapping["well"]:
 
 best_decline_name = None
 insights, recs, well_class = [], [], "Unclassified"
+risks = {"water_risk": 0, "gas_risk": 0, "depletion_risk": 0, "anomaly_risk": 0}
+health_score = 0
 
 with tab4:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
@@ -838,8 +931,12 @@ with tab4:
 
 with tab5:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.subheader("AI Petroleum Data Scientist")
+    st.subheader("Full AI Engine")
 
+    # AI summary
+    insights, recs, well_class, risks, health_score = ai_summary(df, mapping)
+
+    # Decline analysis
     if mapping["production"]:
         x_num, dt_values = time_to_numeric(df[mapping["time"]])
         q = pd.to_numeric(df[mapping["production"]], errors="coerce").values
@@ -868,28 +965,20 @@ with tab5:
             }).sort_values("RMSE")
             st.dataframe(metrics_df, use_container_width=True)
 
-            horizon = st.slider("Forecast periods", 6, 60, 18, 6)
-            fc = forecast_from_decline(x_num, q, periods=horizon)
+    # Risk score cards
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(f'<div class="metric-card"><div class="metric-title">Water Risk</div><div class="metric-value">{risks["water_risk"]}</div></div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown(f'<div class="metric-card"><div class="metric-title">Gas Risk</div><div class="metric-value">{risks["gas_risk"]}</div></div>', unsafe_allow_html=True)
+    with c3:
+        st.markdown(f'<div class="metric-card"><div class="metric-title">Depletion Risk</div><div class="metric-value">{risks["depletion_risk"]}</div></div>', unsafe_allow_html=True)
+    with c4:
+        st.markdown(f'<div class="metric-card"><div class="metric-title">Reservoir Health</div><div class="metric-value">{health_score}</div></div>', unsafe_allow_html=True)
 
-            if fc is not None:
-                best_name, future_t, pred, _ = fc
+    st.markdown("---")
 
-                if dt_values is not None and dt_values.notna().sum() >= 2:
-                    step = dt_values.dropna().iloc[-1] - dt_values.dropna().iloc[-2]
-                    if pd.isna(step) or step == pd.Timedelta(0):
-                        step = pd.Timedelta(days=1)
-                    future_time = [dt_values.dropna().iloc[-1] + step * (i + 1) for i in range(horizon)]
-                else:
-                    future_time = future_t
-
-                fig2 = go.Figure()
-                fig2.add_trace(go.Scatter(x=time_hist, y=q_hist, mode="lines+markers", name="Historical"))
-                fig2.add_trace(go.Scatter(x=future_time, y=pred, mode="lines+markers", name=f"{best_name} Forecast"))
-                fig2.update_layout(template="plotly_dark", title="Production Forecast")
-                st.plotly_chart(fig2, use_container_width=True)
-
-    insights, recs, well_class = ai_summary(df, mapping)
-
+    # Classification and summary
     class_col, kpi_col = st.columns([1.2, 1])
     with class_col:
         st.markdown(f"""
@@ -905,13 +994,53 @@ with tab5:
             outlier_count = int(detect_outliers_iqr(df[mapping["production"]]).fillna(False).sum())
         st.markdown(f"""
 <div class="ai-box">
-    <h3 style="margin-top:0;">AI Data Summary</h3>
+    <h3 style="margin-top:0;">AI Summary</h3>
     <p style="margin:0;color:#d8e4ff;">Rows analyzed: <b>{len(df)}</b></p>
     <p style="margin:0;color:#d8e4ff;">Anomalies detected: <b>{outlier_count}</b></p>
     <p style="margin:0;color:#d8e4ff;">Best decline model: <b>{best_decline_name if best_decline_name else "-"}</b></p>
 </div>
 """, unsafe_allow_html=True)
 
+    st.markdown("---")
+    st.subheader("Predictive AI")
+
+    pred_results = predictive_ai(df, mapping)
+    pred_key_labels = {
+        "production": "Production",
+        "pressure": "Pressure",
+        "water_cut": "Water Cut",
+        "gor": "GOR",
+    }
+
+    pred_choice = st.selectbox(
+        "Select variable for predictive AI",
+        list(pred_results.keys()) if pred_results else ["production"]
+    )
+
+    if pred_results and pred_choice in pred_results:
+        pr = pred_results[pred_choice]
+        fig_pred = go.Figure()
+        fig_pred.add_trace(go.Scatter(
+            x=pr["historical_x"],
+            y=pr["historical_y"],
+            mode="lines+markers",
+            name="Historical"
+        ))
+        fig_pred.add_trace(go.Scatter(
+            x=pr["future_x"],
+            y=pr["pred"],
+            mode="lines+markers",
+            name="Predicted"
+        ))
+        fig_pred.update_layout(
+            template="plotly_dark",
+            title=f"{pred_key_labels[pred_choice]} Predictive AI Outlook"
+        )
+        st.plotly_chart(fig_pred, use_container_width=True)
+
+        st.write(f"Predicted trend slope: {pr['slope']:.3f}")
+
+    st.markdown("---")
     left, right = st.columns(2)
 
     with left:
@@ -926,11 +1055,11 @@ with tab5:
 
     st.markdown("""
 <div class="section-card" style="margin-top:1rem;">
-  <h3 style="margin-top:0;">AI Summary Box</h3>
+  <h3 style="margin-top:0;">AI Report Writer Logic</h3>
   <p class="small-note">
-    This module behaves like an early-stage petroleum data scientist assistant. It reviews production decline,
-    pressure depletion, water-cut growth, GOR movement, anomalies, and basic cross-variable relationships
-    to produce a structured engineering interpretation.
+    This AI layer combines smart petroleum reasoning, risk scoring, reservoir health logic,
+    predictive linear outlooks, anomaly detection, and decline diagnostics to generate a technical
+    interpretation that is stronger than simple charting or static summaries.
   </p>
 </div>
 """, unsafe_allow_html=True)
@@ -941,10 +1070,20 @@ with tab6:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("Reports")
 
-    report = text_report(df, mapping, selected_well, insights, recs, best_decline_name, well_class)
+    report = generate_ai_report(
+        df=df,
+        mapping=mapping,
+        selected_well=selected_well,
+        insights=insights,
+        recs=recs,
+        best_decline_name=best_decline_name,
+        well_class=well_class,
+        risks=risks,
+        health_score=health_score
+    )
 
     st.download_button(
-        "Download engineering report (.txt)",
+        "Download AI engineering report (.txt)",
         data=report.encode("utf-8"),
         file_name="petroleum_ai_report.txt",
         mime="text/plain"
@@ -959,7 +1098,7 @@ with tab6:
 
     st.markdown("""
 <div class="footer-box">
-    Developed by Abbas • Petroleum Engineering • AI Petroleum Data Scientist Platform
+    Developed by Abbas • Petroleum Engineering • Full AI Petroleum Data Scientist Platform
 </div>
 """, unsafe_allow_html=True)
 
