@@ -1,4 +1,5 @@
 import io
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -6,6 +7,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from sklearn.linear_model import LinearRegression
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 
 st.set_page_config(
     page_title="Petroleum Data Analysis with AI",
@@ -167,6 +170,7 @@ SUPPORTED = [".csv", ".xlsx", ".xls", ".txt", ".json"]
 SYNONYMS = {
     "time": ["time", "date", "day", "days", "datetime", "timestamp"],
     "well": ["well", "well_name", "wellname", "api", "uwi"],
+    "field": ["field", "field_name", "asset"],
     "production": ["production", "prod", "oil_rate", "qo", "q_oil", "liquid_rate", "rate", "production_rate"],
     "pressure": ["pressure", "pres", "bhp", "reservoir_pressure", "p_res"],
     "water_cut": ["watercut", "water_cut", "wc", "bsw"],
@@ -178,6 +182,12 @@ def demo_dataset():
     np.random.seed(42)
     days = np.arange(1, 91)
     wells = ["Well_A", "Well_B", "Well_C", "Well_D"]
+    fields = {
+        "Well_A": "North_Field",
+        "Well_B": "North_Field",
+        "Well_C": "South_Field",
+        "Well_D": "South_Field",
+    }
     rows = []
 
     for i, well in enumerate(wells):
@@ -193,6 +203,7 @@ def demo_dataset():
             gas = gor + 1.7 * d + np.random.normal(0, 5)
 
             rows.append([
+                fields[well],
                 well,
                 d,
                 max(q, 20),
@@ -201,7 +212,7 @@ def demo_dataset():
                 max(gas, 0)
             ])
 
-    df = pd.DataFrame(rows, columns=["Well", "Day", "Production", "Pressure", "WaterCut", "GOR"])
+    df = pd.DataFrame(rows, columns=["Field", "Well", "Day", "Production", "Pressure", "WaterCut", "GOR"])
     df.loc[25, "Production"] = df.loc[25, "Production"] * 1.7
     df.loc[170, "Production"] = df.loc[170, "Production"] * 0.4
     return df
@@ -234,6 +245,7 @@ def auto_detect_columns(df: pd.DataFrame):
     detected = {
         "time": None,
         "well": None,
+        "field": None,
         "production": None,
         "pressure": None,
         "water_cut": None,
@@ -281,6 +293,13 @@ def detect_outliers_iqr(series):
 def rank_wells(df, well_col, production_col):
     grp = df.groupby(well_col)[production_col].agg(["mean", "max", "min", "count"]).reset_index()
     grp.columns = [well_col, "Average_Production", "Max_Production", "Min_Production", "Records"]
+    grp = grp.sort_values("Average_Production", ascending=False).reset_index(drop=True)
+    grp["Rank"] = np.arange(1, len(grp) + 1)
+    return grp
+
+def rank_fields(df, field_col, production_col):
+    grp = df.groupby(field_col)[production_col].agg(["mean", "max", "min", "count"]).reset_index()
+    grp.columns = [field_col, "Average_Production", "Max_Production", "Min_Production", "Records"]
     grp = grp.sort_values("Average_Production", ascending=False).reset_index(drop=True)
     grp["Rank"] = np.arange(1, len(grp) + 1)
     return grp
@@ -574,7 +593,8 @@ def ai_summary(df, mapping):
 
     return insights, recs, well_class, risks, health_score
 
-def generate_ai_report(df, mapping, selected_well, insights, recs, best_decline_name, well_class, risks, health_score, decline_params_text):
+# ---------- PDF / Report ----------
+def generate_ai_report_text(df, mapping, selected_well, insights, recs, best_decline_name, well_class, risks, health_score, decline_params_text):
     lines = []
     lines.append("AI PETROLEUM DATA SCIENTIST REPORT")
     lines.append("=" * 60)
@@ -611,43 +631,97 @@ def generate_ai_report(df, mapping, selected_well, insights, recs, best_decline_
     for item in recs:
         lines.append(f"* {item}")
 
-    lines.append("")
-    lines.append("Summary:")
-    lines.append(
-        "This report combines smart petroleum reasoning, deeper production/pressure/water/gas analysis, "
-        "risk scoring, reservoir health assessment, predictive diagnostics, and decline interpretation "
-        "to support early-stage engineering decision making."
-    )
-
     return "\n".join(lines)
+
+def create_pdf_report(well_class, health_score, risks, insights, recs, best_decline_name, decline_params_text):
+    temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    c = canvas.Canvas(temp.name, pagesize=letter)
+    width, height = letter
+
+    y = height - 50
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(50, y, "Petroleum AI Engineering Report")
+
+    y -= 30
+    c.setFont("Helvetica", 11)
+    c.drawString(50, y, f"AI Well Classification: {well_class}")
+    y -= 18
+    c.drawString(50, y, f"Reservoir Health Score: {health_score}/100")
+    y -= 18
+    c.drawString(50, y, f"Best Decline Model: {best_decline_name if best_decline_name else '-'}")
+    y -= 18
+    c.drawString(50, y, f"Decline Parameters: {decline_params_text if decline_params_text else '-'}")
+    y -= 25
+
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(50, y, "Risk Scores")
+    y -= 18
+    c.setFont("Helvetica", 11)
+    c.drawString(60, y, f"Water Risk: {risks['water_risk']}")
+    y -= 16
+    c.drawString(60, y, f"Gas Risk: {risks['gas_risk']}")
+    y -= 16
+    c.drawString(60, y, f"Depletion Risk: {risks['depletion_risk']}")
+    y -= 16
+    c.drawString(60, y, f"Data Quality Risk: {risks['anomaly_risk']}")
+    y -= 24
+
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(50, y, "AI Insights")
+    y -= 18
+    c.setFont("Helvetica", 10)
+    for item in insights[:8]:
+        c.drawString(60, y, f"- {item[:95]}")
+        y -= 15
+        if y < 80:
+            c.showPage()
+            y = height - 50
+            c.setFont("Helvetica", 10)
+
+    y -= 10
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(50, y, "Recommended Actions")
+    y -= 18
+    c.setFont("Helvetica", 10)
+    for item in recs[:8]:
+        c.drawString(60, y, f"- {item[:95]}")
+        y -= 15
+        if y < 80:
+            c.showPage()
+            y = height - 50
+            c.setFont("Helvetica", 10)
+
+    c.save()
+    return temp.name
 
 # ---------- Header ----------
 st.markdown("""
 <div class="hero">
-  <div class="badge">Version 10 • Fixed + Phase 2 Complete</div>
+  <div class="badge">Version 11 • Phase 3 Complete</div>
   <div class="main-title">Petroleum Data Analysis with AI</div>
   <div class="sub-title">
     Full AI petroleum analytics with smart logic, deeper engineering interpretation,
-    duplicate-safe mapping, risk scoring, reservoir health scoring, predictive diagnostics, and AI report writing.
+    duplicate-safe mapping, risk scoring, reservoir health, predictive diagnostics,
+    field-level analysis, executive summary, and PDF report export.
   </div>
 </div>
 """, unsafe_allow_html=True)
 
 st.markdown("""
 <div class="section-card">
-  <h3 style="margin-top:0;">What Was Fixed</h3>
+  <h3 style="margin-top:0;">Phase 3 Additions</h3>
   <div class="info-grid">
     <div class="info-box">
-      <h4>Duplicate Mapping Protection</h4>
-      <p>The app now stops safely if the same column is assigned to multiple engineering roles.</p>
+      <h4>Executive Summary</h4>
+      <p>Instant high-level view of the well condition, reservoir health, and dominant risk.</p>
     </div>
     <div class="info-box">
-      <h4>Stable Correlation Logic</h4>
-      <p>Duplicate-safe analysis columns prevent the DuplicateError crash from happening again.</p>
+      <h4>Field-Level Analysis</h4>
+      <p>Compares field performance when a field column exists in the uploaded data.</p>
     </div>
     <div class="info-box">
-      <h4>Phase 2 Complete</h4>
-      <p>Deep petroleum AI, risk scoring, health score, prediction, ranking, and AI report writing are included.</p>
+      <h4>Professional Export</h4>
+      <p>Supports TXT report export and PDF engineering report generation.</p>
     </div>
   </div>
 </div>
@@ -718,16 +792,16 @@ with tab1:
     st.markdown("""
 <div class="info-grid">
   <div class="info-box">
-    <h4>Duplicate-Protected Workflow</h4>
-    <p>Wrong mappings are stopped immediately before any chart or AI logic starts.</p>
+    <h4>Executive Decision Support</h4>
+    <p>Shows the reservoir health, well class, and dominant risk in one quick view.</p>
   </div>
   <div class="info-box">
-    <h4>Deep Petroleum Analysis</h4>
-    <p>Production, pressure, water cut, and GOR are interpreted together through smart AI logic.</p>
+    <h4>Field + Well Analytics</h4>
+    <p>Supports comparison at both well level and field level when the data includes a field column.</p>
   </div>
   <div class="info-box">
-    <h4>Portfolio-Ready Output</h4>
-    <p>The platform now includes risk scores, well classification, prediction, and AI report export.</p>
+    <h4>Professional Reporting</h4>
+    <p>Exports both quick text reports and polished PDF engineering reports.</p>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -751,7 +825,9 @@ with tab3:
     with left:
         time_col = st.selectbox("Time / Date", cols, index=cols.index(det["time"]) if det["time"] in cols else 0)
         well_opts = ["None"] + cols
+        field_opts = ["None"] + cols
         well_col = st.selectbox("Well column", well_opts, index=well_opts.index(det["well"]) if det["well"] in well_opts else 0)
+        field_col = st.selectbox("Field column", field_opts, index=field_opts.index(det["field"]) if det["field"] in field_opts else 0)
 
     with mid:
         prod_opts = ["None"] + num_cols
@@ -765,6 +841,7 @@ with tab3:
     mapping = {
         "time": time_col,
         "well": None if well_col == "None" else well_col,
+        "field": None if field_col == "None" else field_col,
         "production": None if prod_col == "None" else prod_col,
         "pressure": None if press_col == "None" else press_col,
         "water_cut": None if wc_col == "None" else wc_col,
@@ -780,7 +857,6 @@ with tab3:
     st.json(mapping)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# fallback mapping if tab3 not interacted with yet
 try:
     mapping
 except NameError:
@@ -788,6 +864,7 @@ except NameError:
     mapping = {
         "time": det["time"] or cols[0],
         "well": det["well"],
+        "field": det["field"],
         "production": det["production"],
         "pressure": det["pressure"],
         "water_cut": det["water_cut"],
@@ -821,10 +898,28 @@ with tab4:
         fig_prod = go.Figure()
         if mapping["well"] and selected_well == "All":
             for well_name, sub in df.groupby(mapping["well"]):
-                fig_prod.add_trace(go.Scatter(x=sub[mapping["time"]], y=sub[mapping["production"]], mode="lines", name=str(well_name)))
+                fig_prod.add_trace(go.Scatter(
+                    x=sub[mapping["time"]],
+                    y=sub[mapping["production"]],
+                    mode="lines",
+                    name=str(well_name),
+                    hovertemplate="Time: %{x}<br>Production: %{y:.2f}<extra></extra>"
+                ))
         else:
-            fig_prod.add_trace(go.Scatter(x=df[mapping["time"]], y=df[mapping["production"]], mode="lines+markers", name="Production"))
-        fig_prod.update_layout(template="plotly_dark", title="Production vs Time")
+            fig_prod.add_trace(go.Scatter(
+                x=df[mapping["time"]],
+                y=df[mapping["production"]],
+                mode="lines+markers",
+                name="Production",
+                hovertemplate="Time: %{x}<br>Production: %{y:.2f}<extra></extra>"
+            ))
+        fig_prod.update_layout(
+            template="plotly_dark",
+            title="Production vs Time",
+            title_font_size=22,
+            font=dict(size=14),
+            hovermode="x unified"
+        )
         st.plotly_chart(fig_prod, use_container_width=True)
 
     c1, c2 = st.columns(2)
@@ -833,10 +928,28 @@ with tab4:
             fig_press = go.Figure()
             if mapping["well"] and selected_well == "All":
                 for well_name, sub in df.groupby(mapping["well"]):
-                    fig_press.add_trace(go.Scatter(x=sub[mapping["time"]], y=sub[mapping["pressure"]], mode="lines", name=str(well_name)))
+                    fig_press.add_trace(go.Scatter(
+                        x=sub[mapping["time"]],
+                        y=sub[mapping["pressure"]],
+                        mode="lines",
+                        name=str(well_name),
+                        hovertemplate="Time: %{x}<br>Pressure: %{y:.2f}<extra></extra>"
+                    ))
             else:
-                fig_press.add_trace(go.Scatter(x=df[mapping["time"]], y=df[mapping["pressure"]], mode="lines+markers", name="Pressure"))
-            fig_press.update_layout(template="plotly_dark", title="Pressure vs Time")
+                fig_press.add_trace(go.Scatter(
+                    x=df[mapping["time"]],
+                    y=df[mapping["pressure"]],
+                    mode="lines+markers",
+                    name="Pressure",
+                    hovertemplate="Time: %{x}<br>Pressure: %{y:.2f}<extra></extra>"
+                ))
+            fig_press.update_layout(
+                template="plotly_dark",
+                title="Pressure vs Time",
+                title_font_size=22,
+                font=dict(size=14),
+                hovermode="x unified"
+            )
             st.plotly_chart(fig_press, use_container_width=True)
 
     with c2:
@@ -844,20 +957,56 @@ with tab4:
             fig_wc = go.Figure()
             if mapping["well"] and selected_well == "All":
                 for well_name, sub in df.groupby(mapping["well"]):
-                    fig_wc.add_trace(go.Scatter(x=sub[mapping["time"]], y=sub[mapping["water_cut"]], mode="lines", name=str(well_name)))
+                    fig_wc.add_trace(go.Scatter(
+                        x=sub[mapping["time"]],
+                        y=sub[mapping["water_cut"]],
+                        mode="lines",
+                        name=str(well_name),
+                        hovertemplate="Time: %{x}<br>Water Cut: %{y:.4f}<extra></extra>"
+                    ))
             else:
-                fig_wc.add_trace(go.Scatter(x=df[mapping["time"]], y=df[mapping["water_cut"]], mode="lines+markers", name="Water Cut"))
-            fig_wc.update_layout(template="plotly_dark", title="Water Cut vs Time")
+                fig_wc.add_trace(go.Scatter(
+                    x=df[mapping["time"]],
+                    y=df[mapping["water_cut"]],
+                    mode="lines+markers",
+                    name="Water Cut",
+                    hovertemplate="Time: %{x}<br>Water Cut: %{y:.4f}<extra></extra>"
+                ))
+            fig_wc.update_layout(
+                template="plotly_dark",
+                title="Water Cut vs Time",
+                title_font_size=22,
+                font=dict(size=14),
+                hovermode="x unified"
+            )
             st.plotly_chart(fig_wc, use_container_width=True)
 
     if mapping["gor"]:
         fig_gor = go.Figure()
         if mapping["well"] and selected_well == "All":
             for well_name, sub in df.groupby(mapping["well"]):
-                fig_gor.add_trace(go.Scatter(x=sub[mapping["time"]], y=sub[mapping["gor"]], mode="lines", name=str(well_name)))
+                fig_gor.add_trace(go.Scatter(
+                    x=sub[mapping["time"]],
+                    y=sub[mapping["gor"]],
+                    mode="lines",
+                    name=str(well_name),
+                    hovertemplate="Time: %{x}<br>GOR: %{y:.2f}<extra></extra>"
+                ))
         else:
-            fig_gor.add_trace(go.Scatter(x=df[mapping["time"]], y=df[mapping["gor"]], mode="lines+markers", name="GOR"))
-        fig_gor.update_layout(template="plotly_dark", title="GOR vs Time")
+            fig_gor.add_trace(go.Scatter(
+                x=df[mapping["time"]],
+                y=df[mapping["gor"]],
+                mode="lines+markers",
+                name="GOR",
+                hovertemplate="Time: %{x}<br>GOR: %{y:.2f}<extra></extra>"
+            ))
+        fig_gor.update_layout(
+            template="plotly_dark",
+            title="GOR vs Time",
+            title_font_size=22,
+            font=dict(size=14),
+            hovermode="x unified"
+        )
         st.plotly_chart(fig_gor, use_container_width=True)
 
     if mapping["well"] and mapping["production"] and selected_well == "All":
@@ -876,6 +1025,27 @@ with tab4:
 
         st.dataframe(ranking_df, use_container_width=True)
 
+    if mapping["field"] and mapping["production"]:
+        st.markdown("---")
+        st.subheader("Field Level Analysis")
+        field_rank_df = rank_fields(df, mapping["field"], mapping["production"])
+        st.dataframe(field_rank_df, use_container_width=True)
+
+        fig_field = go.Figure()
+        fig_field.add_trace(go.Bar(
+            x=field_rank_df[mapping["field"]],
+            y=field_rank_df["Average_Production"],
+            hovertemplate="Field: %{x}<br>Average Production: %{y:.2f}<extra></extra>"
+        ))
+        fig_field.update_layout(
+            template="plotly_dark",
+            title="Field Production Comparison",
+            title_font_size=22,
+            font=dict(size=14),
+            hovermode="x unified"
+        )
+        st.plotly_chart(fig_field, use_container_width=True)
+
     if mapping["production"]:
         st.markdown("---")
         st.subheader("Production Anomaly Detection")
@@ -887,9 +1057,25 @@ with tab4:
         normal = temp[temp["_anomaly"] == "Normal"]
         out = temp[temp["_anomaly"] == "Possible Outlier"]
 
-        fig_anom.add_trace(go.Scatter(x=normal[mapping["time"]], y=normal[mapping["production"]], mode="markers", name="Normal"))
-        fig_anom.add_trace(go.Scatter(x=out[mapping["time"]], y=out[mapping["production"]], mode="markers", name="Possible Outlier"))
-        fig_anom.update_layout(template="plotly_dark", title="Production Outlier Screening")
+        fig_anom.add_trace(go.Scatter(
+            x=normal[mapping["time"]],
+            y=normal[mapping["production"]],
+            mode="markers",
+            name="Normal"
+        ))
+        fig_anom.add_trace(go.Scatter(
+            x=out[mapping["time"]],
+            y=out[mapping["production"]],
+            mode="markers",
+            name="Possible Outlier"
+        ))
+        fig_anom.update_layout(
+            template="plotly_dark",
+            title="Production Outlier Screening",
+            title_font_size=22,
+            font=dict(size=14),
+            hovermode="x unified"
+        )
         st.plotly_chart(fig_anom, use_container_width=True)
 
     st.markdown("---")
@@ -908,7 +1094,12 @@ with tab4:
             texttemplate="%{text}",
             colorscale="Blues"
         ))
-        fig_corr.update_layout(template="plotly_dark", title="Correlation Matrix")
+        fig_corr.update_layout(
+            template="plotly_dark",
+            title="Correlation Matrix",
+            title_font_size=22,
+            font=dict(size=14)
+        )
         st.plotly_chart(fig_corr, use_container_width=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
@@ -918,6 +1109,16 @@ with tab5:
     st.subheader("AI Engine")
 
     insights, recs, well_class, risks, health_score = ai_summary(df, mapping)
+
+    st.markdown("## Executive Summary")
+    s1, s2, s3 = st.columns(3)
+    with s1:
+        st.metric("Reservoir Health Score", f"{health_score}/100")
+    with s2:
+        st.metric("Well Classification", well_class)
+    with s3:
+        highest_risk = max(risks, key=risks.get)
+        st.metric("Highest Risk", highest_risk.replace("_", " ").title())
 
     if mapping["production"]:
         x_num, _ = time_to_numeric(df[mapping["time"]])
@@ -938,7 +1139,13 @@ with tab5:
             fig_decline.add_trace(go.Scatter(x=time_hist, y=q_hist, mode="lines+markers", name="Actual"))
             for model_name, info in results.items():
                 fig_decline.add_trace(go.Scatter(x=time_hist, y=info["qhat"], mode="lines", name=f"{model_name} Fit"))
-            fig_decline.update_layout(template="plotly_dark", title="Decline Model Comparison")
+            fig_decline.update_layout(
+                template="plotly_dark",
+                title="Decline Model Comparison",
+                title_font_size=22,
+                font=dict(size=14),
+                hovermode="x unified"
+            )
             st.plotly_chart(fig_decline, use_container_width=True)
 
             metrics_df = pd.DataFrame({
@@ -962,31 +1169,7 @@ with tab5:
     with c3:
         st.markdown(f'<div class="metric-card"><div class="metric-title">Depletion Risk</div><div class="metric-value">{risks["depletion_risk"]}</div></div>', unsafe_allow_html=True)
     with c4:
-        st.markdown(f'<div class="metric-card"><div class="metric-title">Reservoir Health</div><div class="metric-value">{health_score}</div></div>', unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    class_col, kpi_col = st.columns([1.2, 1])
-    with class_col:
-        st.markdown(f"""
-<div class="ai-box">
-    <h3 style="margin-top:0;">AI Well Classification</h3>
-    <p style="font-size:1.2rem;font-weight:700;color:white;margin-bottom:0;">{well_class}</p>
-</div>
-""", unsafe_allow_html=True)
-
-    with kpi_col:
-        outlier_count = 0
-        if mapping.get("production"):
-            outlier_count = int(detect_outliers_iqr(df[mapping["production"]]).fillna(False).sum())
-        st.markdown(f"""
-<div class="ai-box">
-    <h3 style="margin-top:0;">AI Summary</h3>
-    <p style="margin:0;color:#d8e4ff;">Rows analyzed: <b>{len(df)}</b></p>
-    <p style="margin:0;color:#d8e4ff;">Anomalies detected: <b>{outlier_count}</b></p>
-    <p style="margin:0;color:#d8e4ff;">Best decline model: <b>{best_decline_name if best_decline_name else "-"}</b></p>
-</div>
-""", unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><div class="metric-title">Data Quality Risk</div><div class="metric-value">{risks["anomaly_risk"]}</div></div>', unsafe_allow_html=True)
 
     st.markdown("---")
     st.subheader("Predictive AI")
@@ -1004,11 +1187,26 @@ with tab5:
         pr = pred_results[pred_choice]
 
         fig_pred = go.Figure()
-        fig_pred.add_trace(go.Scatter(x=pr["historical_x"], y=pr["historical_y"], mode="lines+markers", name="Historical"))
-        fig_pred.add_trace(go.Scatter(x=pr["future_x"], y=pr["pred"], mode="lines+markers", name="Predicted"))
-        fig_pred.update_layout(template="plotly_dark", title=f"{labels[pred_choice]} Predictive AI Outlook")
+        fig_pred.add_trace(go.Scatter(
+            x=pr["historical_x"],
+            y=pr["historical_y"],
+            mode="lines+markers",
+            name="Historical"
+        ))
+        fig_pred.add_trace(go.Scatter(
+            x=pr["future_x"],
+            y=pr["pred"],
+            mode="lines+markers",
+            name="Predicted"
+        ))
+        fig_pred.update_layout(
+            template="plotly_dark",
+            title=f"{labels[pred_choice]} Predictive AI Outlook",
+            title_font_size=22,
+            font=dict(size=14),
+            hovermode="x unified"
+        )
         st.plotly_chart(fig_pred, use_container_width=True)
-
         st.write(f"Predicted trend slope: {pr['slope']:.3f}")
 
     st.markdown("---")
@@ -1028,7 +1226,7 @@ with tab6:
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
     st.subheader("Reports")
 
-    report = generate_ai_report(
+    report_text = generate_ai_report_text(
         df=df,
         mapping=mapping,
         selected_well=selected_well,
@@ -1043,7 +1241,7 @@ with tab6:
 
     st.download_button(
         "Download AI engineering report (.txt)",
-        data=report.encode("utf-8"),
+        data=report_text.encode("utf-8"),
         file_name="petroleum_ai_report.txt",
         mime="text/plain"
     )
@@ -1055,9 +1253,28 @@ with tab6:
         mime="text/csv"
     )
 
+    st.markdown("### Download Professional PDF Report")
+    if st.button("Generate PDF Report"):
+        pdf_path = create_pdf_report(
+            well_class=well_class,
+            health_score=health_score,
+            risks=risks,
+            insights=insights,
+            recs=recs,
+            best_decline_name=best_decline_name,
+            decline_params_text=decline_params_text
+        )
+        with open(pdf_path, "rb") as f:
+            st.download_button(
+                "Download PDF",
+                f.read(),
+                file_name="petroleum_ai_report.pdf",
+                mime="application/pdf"
+            )
+
     st.markdown("""
 <div class="footer-box">
-    Developed by Abbas • Petroleum Engineering • Fixed Phase 2 AI Platform
+    Developed by Abbas • Petroleum Engineering • Phase 3 AI Platform
 </div>
 """, unsafe_allow_html=True)
 
