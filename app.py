@@ -1,6 +1,8 @@
 import io
 import json
+import os
 import tempfile
+import hashlib
 from pathlib import Path
 from datetime import datetime
 
@@ -23,7 +25,154 @@ st.set_page_config(
 )
 
 # =========================================================
-# STABLE HUMAN UI
+# STORAGE / AUTH
+# =========================================================
+DATA_DIR = "storage"
+USERS_FILE = os.path.join(DATA_DIR, "users.json")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def load_users() -> dict:
+    if not os.path.exists(USERS_FILE):
+        return {}
+    try:
+        with open(USERS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_users(users: dict) -> None:
+    with open(USERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(users, f, indent=2)
+
+
+def safe_name(name: str) -> str:
+    keep = []
+    for ch in str(name):
+        if ch.isalnum() or ch in ("_", "-", " "):
+            keep.append(ch)
+    cleaned = "".join(keep).strip().replace(" ", "_")
+    return cleaned[:80] if cleaned else "project"
+
+
+def user_folder(username: str) -> str:
+    path = os.path.join(DATA_DIR, safe_name(username))
+    os.makedirs(path, exist_ok=True)
+    os.makedirs(os.path.join(path, "projects"), exist_ok=True)
+    os.makedirs(os.path.join(path, "uploads"), exist_ok=True)
+    return path
+
+
+def user_projects_dir(username: str) -> str:
+    path = os.path.join(user_folder(username), "projects")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def user_uploads_dir(username: str) -> str:
+    path = os.path.join(user_folder(username), "uploads")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def save_uploaded_file_for_user(username: str, uploaded_file) -> str:
+    filename = safe_name(uploaded_file.name)
+    save_path = os.path.join(user_uploads_dir(username), filename)
+    with open(save_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+    return save_path
+
+
+def list_user_files(username: str) -> list:
+    folder = user_uploads_dir(username)
+    files = []
+    for f in os.listdir(folder):
+        full = os.path.join(folder, f)
+        if os.path.isfile(full):
+            files.append({
+                "name": f,
+                "path": full,
+                "modified": datetime.fromtimestamp(os.path.getmtime(full)).strftime("%Y-%m-%d %H:%M"),
+                "size_kb": round(os.path.getsize(full) / 1024, 1)
+            })
+    files.sort(key=lambda x: x["modified"], reverse=True)
+    return files
+
+
+def save_project(username: str, project_name: str, payload: dict) -> str:
+    project_name = safe_name(project_name)
+    payload["project_name"] = project_name
+    payload["saved_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    path = os.path.join(user_projects_dir(username), f"{project_name}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    return path
+
+
+def list_projects(username: str) -> list:
+    folder = user_projects_dir(username)
+    projects = []
+    for f in os.listdir(folder):
+        if f.endswith(".json"):
+            full = os.path.join(folder, f)
+            try:
+                with open(full, "r", encoding="utf-8") as fp:
+                    data = json.load(fp)
+                projects.append({
+                    "name": data.get("project_name", f.replace(".json", "")),
+                    "saved_at": data.get("saved_at", ""),
+                    "path": full
+                })
+            except Exception:
+                projects.append({
+                    "name": f.replace(".json", ""),
+                    "saved_at": "",
+                    "path": full
+                })
+    projects.sort(key=lambda x: x["saved_at"], reverse=True)
+    return projects
+
+
+def load_project(username: str, project_name: str) -> dict | None:
+    path = os.path.join(user_projects_dir(username), f"{safe_name(project_name)}.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def delete_project(username: str, project_name: str) -> None:
+    path = os.path.join(user_projects_dir(username), f"{safe_name(project_name)}.json")
+    if os.path.exists(path):
+        os.remove(path)
+
+
+# =========================================================
+# SESSION
+# =========================================================
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+if "loaded_project_name" not in st.session_state:
+    st.session_state.loaded_project_name = None
+
+if "loaded_project_data" not in st.session_state:
+    st.session_state.loaded_project_data = None
+
+if "source_mode" not in st.session_state:
+    st.session_state.source_mode = "Use demo dataset"
+
+
+# =========================================================
+# UI
 # =========================================================
 st.markdown("""
 <style>
@@ -47,10 +196,6 @@ st.markdown("""
     padding-bottom: 2rem;
 }
 
-/* IMPORTANT:
-   no global div/span color forcing
-   to avoid breaking JSON/code/table widgets
-*/
 html, body,
 h1, h2, h3, h4, h5, h6,
 label,
@@ -208,7 +353,15 @@ label,
     border-bottom:none;
 }
 
-/* Tabs */
+.auth-card{
+    max-width:520px;
+    margin:30px auto;
+    border:1px solid var(--border);
+    background:#121b2d;
+    border-radius:18px;
+    padding:22px;
+}
+
 .stTabs [data-baseweb="tab-list"]{
     gap:8px;
 }
@@ -224,7 +377,6 @@ label,
     border-color:#36507e !important;
 }
 
-/* Buttons */
 div.stButton > button, div.stDownloadButton > button{
     border:none;
     border-radius:10px;
@@ -234,7 +386,6 @@ div.stButton > button, div.stDownloadButton > button{
     color:white;
 }
 
-/* Inputs */
 .stSelectbox div[data-baseweb="select"] > div,
 .stTextInput input,
 textarea{
@@ -249,13 +400,11 @@ div[role="radiogroup"] label{
     color:var(--text) !important;
 }
 
-/* Dataframe readable */
 [data-testid="stDataFrame"]{
     background:#ffffff !important;
     border-radius:10px;
 }
 
-/* Code-like / text areas stay dark text on light background */
 pre, code, textarea{
     color:#111827 !important;
 }
@@ -267,6 +416,55 @@ pre, code, textarea{
 }
 </style>
 """, unsafe_allow_html=True)
+
+# =========================================================
+# AUTH SCREEN
+# =========================================================
+users = load_users()
+
+if st.session_state.user is None:
+    st.markdown("""
+    <div class="auth-card">
+        <div class="badge">PetroScope Workspace</div>
+        <div class="title" style="font-size:1.8rem;">Account Access</div>
+        <p class="subtitle">Create an account or log in to keep your projects and uploaded files.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    auth_mode = st.radio("Access", ["Login", "Register"], horizontal=True)
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+
+    if auth_mode == "Register":
+        confirm_password = st.text_input("Confirm password", type="password")
+        if st.button("Create account"):
+            uname = safe_name(username)
+            if not uname:
+                st.error("Enter a valid username.")
+            elif len(password) < 4:
+                st.error("Password should be at least 4 characters.")
+            elif password != confirm_password:
+                st.error("Passwords do not match.")
+            elif uname in users:
+                st.error("User already exists.")
+            else:
+                users[uname] = {
+                    "password": hash_password(password),
+                    "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                save_users(users)
+                st.success("Account created. You can log in now.")
+
+    else:
+        if st.button("Login"):
+            uname = safe_name(username)
+            if uname in users and users[uname]["password"] == hash_password(password):
+                st.session_state.user = uname
+                st.rerun()
+            else:
+                st.error("Invalid username or password.")
+
+    st.stop()
 
 # =========================================================
 # DATA HELPERS
@@ -282,6 +480,7 @@ SYNONYMS = {
     "water_cut": ["watercut", "water_cut", "wc", "bsw"],
     "gor": ["gor", "gas_oil_ratio", "g_o_r", "gasoilratio"]
 }
+
 
 def demo_dataset():
     np.random.seed(42)
@@ -326,6 +525,25 @@ def demo_dataset():
     df.loc[777, "GOR"] *= 1.22
     return df
 
+
+def load_data_from_path(path: str) -> pd.DataFrame:
+    suffix = Path(path).suffix.lower()
+    if suffix == ".csv":
+        return pd.read_csv(path)
+    if suffix in [".xlsx", ".xls"]:
+        return pd.read_excel(path)
+    if suffix == ".txt":
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+        try:
+            return pd.read_csv(io.StringIO(content))
+        except Exception:
+            return pd.read_csv(io.StringIO(content), sep="\t")
+    if suffix == ".json":
+        return pd.read_json(path)
+    raise ValueError(f"Unsupported file type: {suffix}")
+
+
 def load_uploaded_file(uploaded_file):
     suffix = Path(uploaded_file.name).suffix.lower()
     if suffix not in SUPPORTED:
@@ -346,8 +564,10 @@ def load_uploaded_file(uploaded_file):
 
     raise ValueError("Unable to read file")
 
+
 def normalize_name(name: str) -> str:
     return "".join(ch.lower() for ch in str(name) if ch.isalnum() or ch == "_")
+
 
 def auto_detect_columns(df: pd.DataFrame):
     normalized = {c: normalize_name(c) for c in df.columns}
@@ -375,6 +595,7 @@ def auto_detect_columns(df: pd.DataFrame):
 
     return detected
 
+
 def time_to_numeric(series):
     dt = pd.to_datetime(series, errors="coerce")
     if dt.notna().sum() == len(series):
@@ -388,6 +609,7 @@ def time_to_numeric(series):
 
     return np.arange(len(series), dtype=float), None
 
+
 def detect_outliers_iqr(series):
     s = pd.to_numeric(series, errors="coerce")
     valid = s.dropna()
@@ -399,6 +621,7 @@ def detect_outliers_iqr(series):
     lo, hi = q1 - 1.5 * iqr, q3 + 1.5 * iqr
     return (s < lo) | (s > hi)
 
+
 def rank_wells(df, well_col, production_col):
     grp = df.groupby(well_col)[production_col].agg(["mean", "max", "min", "count"]).reset_index()
     grp.columns = [well_col, "Average_Production", "Max_Production", "Min_Production", "Records"]
@@ -406,12 +629,14 @@ def rank_wells(df, well_col, production_col):
     grp["Rank"] = np.arange(1, len(grp) + 1)
     return grp
 
+
 def rank_fields(df, field_col, production_col):
     grp = df.groupby(field_col)[production_col].agg(["mean", "max", "min", "count"]).reset_index()
     grp.columns = [field_col, "Average_Production", "Max_Production", "Min_Production", "Records"]
     grp = grp.sort_values("Average_Production", ascending=False).reset_index(drop=True)
     grp["Rank"] = np.arange(1, len(grp) + 1)
     return grp
+
 
 def missing_values_summary(df):
     missing = df.isna().sum()
@@ -421,6 +646,7 @@ def missing_values_summary(df):
         "Missing_Percentage": (missing.values / len(df)) * 100
     }).sort_values("Missing_Values", ascending=False)
 
+
 def unique_analysis_cols(mapping):
     vals = []
     for key in ["production", "pressure", "water_cut", "gor"]:
@@ -429,12 +655,14 @@ def unique_analysis_cols(mapping):
             vals.append(v)
     return vals
 
+
 def correlation_matrix_safe(df, mapping):
     cols = unique_analysis_cols(mapping)
     if len(cols) < 2:
         return None
     corr_df = df[cols].apply(pd.to_numeric, errors="coerce")
     return corr_df.corr()
+
 
 # =========================================================
 # DECLINE / FORECAST
@@ -481,6 +709,7 @@ def fit_decline_models(time_vals, q_vals):
     best_name = min(results.keys(), key=lambda k: results[k]["rmse"])
     return best_name, results
 
+
 def calculate_eur(df, mapping, decline_results, best_decline_name):
     prod_col = mapping.get("production")
     time_col = mapping.get("time")
@@ -513,6 +742,7 @@ def calculate_eur(df, mapping, decline_results, best_decline_name):
 
     eur = current_cum + np.sum(np.maximum(pred, 0))
     return round(float(eur), 2)
+
 
 def predictive_ai(df, mapping):
     results = {}
@@ -551,8 +781,9 @@ def predictive_ai(df, mapping):
 
     return results
 
+
 # =========================================================
-# AI / ENGINEERING
+# ENGINEERING AI
 # =========================================================
 def estimate_drive_mechanism(df, mapping):
     prod_col = mapping.get("production")
@@ -582,6 +813,7 @@ def estimate_drive_mechanism(df, mapping):
     if press_drop_pct > 20 and gor_rise > 25:
         return "Solution Gas Drive"
     return "Mixed Drive"
+
 
 def reservoir_diagnostics(df, mapping):
     findings = []
@@ -617,6 +849,7 @@ def reservoir_diagnostics(df, mapping):
 
     return findings
 
+
 def calculate_risk_scores(df, mapping):
     prod_col = mapping.get("production")
     press_col = mapping.get("pressure")
@@ -650,6 +883,7 @@ def calculate_risk_scores(df, mapping):
         "anomaly_risk": round(anomaly_risk, 1),
     }
 
+
 def calculate_reservoir_health_score(df, mapping, risks):
     score = 100.0
     score -= risks["water_risk"] * 0.25
@@ -665,6 +899,7 @@ def calculate_reservoir_health_score(df, mapping, risks):
             score -= max(prod_decline_pct, 0) * 0.20
 
     return max(min(round(score, 1), 100), 0)
+
 
 def calculate_production_efficiency_score(df, mapping):
     prod_col = mapping.get("production")
@@ -706,6 +941,7 @@ def calculate_production_efficiency_score(df, mapping):
     score = production_factor - wc_penalty - press_penalty - gor_penalty
     return round(max(min(score, 100), 0), 1)
 
+
 def classify_well(df, mapping, risks):
     prod_col = mapping.get("production")
     press_col = mapping.get("pressure")
@@ -734,6 +970,7 @@ def classify_well(df, mapping, risks):
         return "Declining Well"
     return "Stable / Improving Well"
 
+
 def detect_underperforming_well(df, mapping):
     well_col = mapping.get("well")
     prod_col = mapping.get("production")
@@ -747,6 +984,7 @@ def detect_underperforming_well(df, mapping):
     worst_well = ranking.iloc[-1][well_col]
     worst_avg = ranking.iloc[-1]["Average_Production"]
     return worst_well, worst_avg
+
 
 def estimate_production_loss(df, mapping):
     prod_col = mapping.get("production")
@@ -765,6 +1003,7 @@ def estimate_production_loss(df, mapping):
         "actual": round(actual, 2),
         "loss": round(loss, 2)
     }
+
 
 def well_problem_detection(df, mapping, risks):
     problems = []
@@ -793,6 +1032,7 @@ def well_problem_detection(df, mapping, risks):
         problems.append("No dominant well problem detected from current data.")
     return problems
 
+
 def artificial_lift_suggestions(df, mapping, risks):
     suggestions = []
 
@@ -814,6 +1054,7 @@ def artificial_lift_suggestions(df, mapping, risks):
     if not suggestions:
         suggestions.append("Current data does not strongly require artificial lift intervention.")
     return suggestions
+
 
 def workover_recommendations(df, mapping, risks):
     recs = []
@@ -840,6 +1081,7 @@ def workover_recommendations(df, mapping, risks):
         recs.append("No strong workover recommendation at this stage.")
     return recs
 
+
 def production_optimization_recommendations(df, mapping, risks):
     recs = []
 
@@ -864,6 +1106,7 @@ def production_optimization_recommendations(df, mapping, risks):
     if not recs:
         recs.append("Maintain current operating strategy and continue monitoring.")
     return recs
+
 
 def ai_summary(df, mapping):
     insights, recs = [], []
@@ -978,6 +1221,7 @@ def ai_summary(df, mapping):
         "drive_mechanism": drive_mech
     }
 
+
 # =========================================================
 # ML
 # =========================================================
@@ -1006,6 +1250,7 @@ def prepare_ml_dataset(df, mapping, target_key="production"):
     X = work.drop(columns=[target_col])
     y = work[target_col]
     return X, y, list(X.columns)
+
 
 def train_ml_models(df, mapping, target_key="production"):
     X, y, feature_names = prepare_ml_dataset(df, mapping, target_key)
@@ -1053,6 +1298,7 @@ def train_ml_models(df, mapping, target_key="production"):
         "historical_idx": np.arange(len(y)),
         "future_idx": np.arange(len(y), len(y) + len(future_pred))
     }
+
 
 # =========================================================
 # REPORT / PDF
@@ -1107,6 +1353,7 @@ def generate_ai_report_text(df, mapping, selected_well, ai_pack, best_decline_na
 
     return "\n".join(lines)
 
+
 def create_pdf_report(ai_pack, best_decline_name, decline_params_text, eur_value, ml_info):
     temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     c = canvas.Canvas(temp.name, pagesize=letter)
@@ -1151,9 +1398,17 @@ def create_pdf_report(ai_pack, best_decline_name, decline_params_text, eur_value
     c.save()
     return temp.name
 
+
 # =========================================================
-# HEADER
+# HEADER + ACCOUNT INFO
 # =========================================================
+st.sidebar.write(f"Logged in as: **{st.session_state.user}**")
+if st.sidebar.button("Logout"):
+    st.session_state.user = None
+    st.session_state.loaded_project_name = None
+    st.session_state.loaded_project_data = None
+    st.rerun()
+
 st.markdown("""
 <div class="app-shell">
     <div class="hero">
@@ -1185,6 +1440,42 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================================================
+# PROJECTS SIDEBAR
+# =========================================================
+st.sidebar.markdown("### My Projects")
+projects_list = list_projects(st.session_state.user)
+
+if projects_list:
+    selected_project_name = st.sidebar.selectbox(
+        "Saved projects",
+        [p["name"] for p in projects_list]
+    )
+    c1, c2 = st.sidebar.columns(2)
+    with c1:
+        if st.button("Load Project", key="load_project_btn"):
+            loaded = load_project(st.session_state.user, selected_project_name)
+            if loaded:
+                st.session_state.loaded_project_name = selected_project_name
+                st.session_state.loaded_project_data = loaded
+                st.success(f"Loaded project: {selected_project_name}")
+    with c2:
+        if st.button("Delete Project", key="delete_project_btn"):
+            delete_project(st.session_state.user, selected_project_name)
+            st.session_state.loaded_project_name = None
+            st.session_state.loaded_project_data = None
+            st.rerun()
+else:
+    st.sidebar.caption("No saved projects yet.")
+
+st.sidebar.markdown("### My Files")
+saved_files = list_user_files(st.session_state.user)
+if saved_files:
+    for f in saved_files[:8]:
+        st.sidebar.caption(f"• {f['name']} ({f['modified']})")
+else:
+    st.sidebar.caption("No uploaded files yet.")
+
+# =========================================================
 # CONTROLS
 # =========================================================
 st.markdown('<div class="section">', unsafe_allow_html=True)
@@ -1192,13 +1483,30 @@ st.subheader("Workspace")
 ctrl1, ctrl2 = st.columns([1.0, 1.4])
 
 with ctrl1:
-    source = st.radio("Data source", ["Upload file", "Use demo dataset"])
+    source = st.radio("Data source", ["Upload file", "Use demo dataset"], index=0 if st.session_state.source_mode == "Upload file" else 1)
+    st.session_state.source_mode = source
 
 with ctrl2:
     uploaded = None
+    selected_saved_file = None
+
     if source == "Upload file":
-        uploaded = st.file_uploader("Upload structured dataset", type=["csv", "xlsx", "xls", "txt", "json"])
-        st.caption("Supported formats: CSV, Excel, TXT, JSON")
+        upload_choice = st.radio("Upload mode", ["Upload new file", "Use saved file"], horizontal=True)
+
+        if upload_choice == "Upload new file":
+            uploaded = st.file_uploader("Upload structured dataset", type=["csv", "xlsx", "xls", "txt", "json"])
+            st.caption("Supported formats: CSV, Excel, TXT, JSON")
+
+            if uploaded is not None:
+                save_path = save_uploaded_file_for_user(st.session_state.user, uploaded)
+                st.success(f"File saved: {Path(save_path).name}")
+
+        else:
+            files = list_user_files(st.session_state.user)
+            if files:
+                selected_saved_file = st.selectbox("Saved files", [f["name"] for f in files])
+            else:
+                st.info("No saved files found. Upload one first.")
     else:
         st.info("Demo dataset is loaded.")
 st.markdown('</div>', unsafe_allow_html=True)
@@ -1208,14 +1516,25 @@ st.markdown('</div>', unsafe_allow_html=True)
 # =========================================================
 if source == "Use demo dataset":
     raw_df = demo_dataset()
+    current_file_name = "demo_dataset"
 else:
-    if uploaded is None:
-        st.info("Upload a file to continue.")
-        st.stop()
-    try:
-        raw_df = load_uploaded_file(uploaded)
-    except Exception as e:
-        st.error(f"Could not read file: {e}")
+    if uploaded is not None:
+        try:
+            raw_df = load_uploaded_file(uploaded)
+            current_file_name = uploaded.name
+        except Exception as e:
+            st.error(f"Could not read uploaded file: {e}")
+            st.stop()
+    elif selected_saved_file is not None:
+        try:
+            file_path = os.path.join(user_uploads_dir(st.session_state.user), selected_saved_file)
+            raw_df = load_data_from_path(file_path)
+            current_file_name = selected_saved_file
+        except Exception as e:
+            st.error(f"Could not read saved file: {e}")
+            st.stop()
+    else:
+        st.info("Choose a file to continue.")
         st.stop()
 
 if raw_df.empty:
@@ -1242,14 +1561,15 @@ st.markdown('</div>', unsafe_allow_html=True)
 # =========================================================
 # TABS
 # =========================================================
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "Home",
     "Dataset",
     "Setup",
     "Review",
     "Findings",
     "Forecast",
-    "Export"
+    "Export",
+    "Projects"
 ])
 
 with tab1:
@@ -1271,22 +1591,25 @@ with tab1:
 <div class="clean-box">
     <h4 style="margin-top:0;">Session</h4>
     <p class="small">Last opened: {datetime.now().strftime("%Y-%m-%d %H:%M")}</p>
-    <p class="small">Source: {"Demo dataset" if source == "Use demo dataset" else "Uploaded dataset"}</p>
+    <p class="small">Source: {source}</p>
+    <p class="small">File: {current_file_name}</p>
 </div>
 """, unsafe_allow_html=True)
 
     with col_c:
-        st.markdown("""
+        loaded_name = st.session_state.loaded_project_name if st.session_state.loaded_project_name else "None"
+        st.markdown(f"""
 <div class="clean-box">
-    <h4 style="margin-top:0;">Use case</h4>
-    <p class="small">Useful for quick engineering screening before deeper reservoir or production review.</p>
+    <h4 style="margin-top:0;">Project</h4>
+    <p class="small">Loaded project: {loaded_name}</p>
+    <p class="small">User: {st.session_state.user}</p>
 </div>
 """, unsafe_allow_html=True)
 
     st.markdown("""
 <div class="note-box">
     <b>Recommended workflow:</b> load dataset → confirm columns → review trends →
-    check findings → test forecast → export report.
+    check findings → test forecast → save project → export report.
 </div>
 """, unsafe_allow_html=True)
 
@@ -1339,28 +1662,12 @@ with tab3:
         st.stop()
 
     st.success("Column setup updated.")
-
     st.markdown('<div class="mapping-box">', unsafe_allow_html=True)
     for k, v in mapping.items():
         shown = v if v is not None else "-"
         st.markdown(f'<div class="mapping-item"><b>{k}</b>: {shown}</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
-
     st.markdown('</div>', unsafe_allow_html=True)
-
-try:
-    mapping
-except NameError:
-    cols = list(raw_df.columns)
-    mapping = {
-        "time": det["time"] or cols[0],
-        "well": det["well"],
-        "field": det["field"],
-        "production": det["production"],
-        "pressure": det["pressure"],
-        "water_cut": det["water_cut"],
-        "gor": det["gor"],
-    }
 
 selected_mapping_values = [v for v in mapping.values() if v is not None]
 if len(selected_mapping_values) != len(set(selected_mapping_values)):
@@ -1732,8 +2039,8 @@ with tab7:
     st.subheader("Platform Notes")
     st.markdown("""
 <div class="clean-box">
-    <p class="small"><b>Current build:</b> working engineering dashboard with diagnostics, forecasting, ML, and export.</p>
-    <p class="small"><b>Next step:</b> user accounts, saved projects, persistent files, and database-backed workspaces.</p>
+    <p class="small"><b>Current build:</b> working engineering dashboard with diagnostics, forecasting, ML, export, accounts, saved files, and saved projects.</p>
+    <p class="small"><b>Next step:</b> move storage to a database and deploy with stronger security.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1751,6 +2058,73 @@ with tab7:
     st.markdown("""
 <div class="footer-box">
     PetroScope • Engineering workspace for production data review
+</div>
+""", unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with tab8:
+    st.markdown('<div class="section">', unsafe_allow_html=True)
+    st.subheader("Projects")
+
+    c1, c2 = st.columns([1.2, 0.8])
+
+    with c1:
+        st.markdown("### Save Current Project")
+        project_name = st.text_input("Project name", value=st.session_state.loaded_project_name or "")
+        project_note = st.text_area("Project note", height=100)
+
+        if st.button("Save Project"):
+            if not project_name.strip():
+                st.error("Enter a project name.")
+            else:
+                preview_records = raw_df.head(10).to_dict(orient="records")
+                payload = {
+                    "note": project_note,
+                    "source_mode": source,
+                    "file_name": current_file_name,
+                    "mapping": mapping,
+                    "selected_well": selected_well,
+                    "data_preview": preview_records,
+                    "row_count": int(len(raw_df)),
+                    "columns": list(raw_df.columns),
+                }
+                save_project(st.session_state.user, project_name, payload)
+                st.session_state.loaded_project_name = safe_name(project_name)
+                st.success("Project saved.")
+
+    with c2:
+        st.markdown("### Project Summary")
+        st.markdown(f"""
+<div class="clean-box">
+    <p class="small">Current file: <b>{current_file_name}</b></p>
+    <p class="small">Rows: <b>{len(raw_df)}</b></p>
+    <p class="small">Loaded project: <b>{st.session_state.loaded_project_name or "-"}</b></p>
+</div>
+""", unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown("### Saved Projects")
+
+    current_projects = list_projects(st.session_state.user)
+    if current_projects:
+        proj_df = pd.DataFrame(current_projects)[["name", "saved_at"]]
+        proj_df.columns = ["Project", "Saved At"]
+        st.dataframe(proj_df, use_container_width=True)
+    else:
+        st.info("No saved projects yet.")
+
+    if st.session_state.loaded_project_data:
+        st.markdown("---")
+        st.markdown("### Loaded Project Details")
+        loaded = st.session_state.loaded_project_data
+        st.markdown(f"""
+<div class="clean-box">
+    <p class="small"><b>Name:</b> {loaded.get("project_name","-")}</p>
+    <p class="small"><b>Saved at:</b> {loaded.get("saved_at","-")}</p>
+    <p class="small"><b>File:</b> {loaded.get("file_name","-")}</p>
+    <p class="small"><b>Rows:</b> {loaded.get("row_count","-")}</p>
+    <p class="small"><b>Note:</b> {loaded.get("note","-")}</p>
 </div>
 """, unsafe_allow_html=True)
 
