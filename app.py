@@ -10,11 +10,15 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+from sklearn.ensemble import (
+    ExtraTreesRegressor,
+    GradientBoostingRegressor,
+    HistGradientBoostingRegressor,
+    RandomForestRegressor,
+)
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error, r2_score
-from sklearn.model_selection import train_test_split
-from sklearn.neural_network import MLPRegressor
+from sklearn.model_selection import TimeSeriesSplit
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
@@ -138,7 +142,7 @@ def list_projects(username: str) -> list:
     return projects
 
 
-def load_project(username: str, project_name: str) -> dict | None:
+def load_project(username: str, project_name: str):
     path = os.path.join(user_projects_dir(username), f"{safe_name(project_name)}.json")
     if not os.path.exists(path):
         return None
@@ -665,8 +669,201 @@ def correlation_matrix_safe(df, mapping):
 
 
 # =========================================================
-# DECLINE / FORECAST
+# AI UPGRADE HELPERS
 # =========================================================
+def quality_score_from_series(series: pd.Series) -> dict:
+    s = pd.to_numeric(series, errors="coerce")
+    total = len(s)
+    valid = s.notna().sum()
+    completeness = 100 * valid / total if total else 0
+
+    if valid < 5:
+        return {
+            "completeness": round(completeness, 1),
+            "volatility": 0.0,
+            "outlier_pct": 0.0,
+            "score": round(completeness * 0.4, 1)
+        }
+
+    clean = s.dropna()
+    outlier_mask = detect_outliers_iqr(s).fillna(False)
+    outlier_pct = 100 * outlier_mask.sum() / total if total else 0
+    mean_abs = float(np.mean(np.abs(clean))) if len(clean) else 1.0
+    diff_std = float(clean.diff().dropna().std()) if len(clean) > 5 else 0.0
+    volatility = 100 * diff_std / (mean_abs + 1e-9)
+    raw_score = 100 - (100 - completeness) * 0.7 - outlier_pct * 1.2 - min(volatility * 0.35, 30)
+    return {
+        "completeness": round(completeness, 1),
+        "volatility": round(volatility, 1),
+        "outlier_pct": round(outlier_pct, 1),
+        "score": round(max(min(raw_score, 100), 0), 1)
+    }
+
+
+def evaluate_data_quality(df: pd.DataFrame, mapping: dict) -> dict:
+    result = {"overall_score": 0.0, "details": {}}
+    scores = []
+    for key in ["production", "pressure", "water_cut", "gor"]:
+        col = mapping.get(key)
+        if col:
+            q = quality_score_from_series(df[col])
+            result["details"][key] = q
+            scores.append(q["score"])
+    result["overall_score"] = round(float(np.mean(scores)), 1) if scores else 0.0
+    return result
+
+
+def detect_regime_change(series: pd.Series) -> dict:
+    s = pd.to_numeric(series, errors="coerce").dropna().reset_index(drop=True)
+    if len(s) < 20:
+        return {"changed": False, "strength": 0.0, "message": "Not enough data"}
+
+    first = s.iloc[: len(s) // 2]
+    second = s.iloc[len(s) // 2 :]
+
+    x1 = np.arange(len(first)).reshape(-1, 1)
+    x2 = np.arange(len(second)).reshape(-1, 1)
+
+    slope1 = float(LinearRegression().fit(x1, first.values).coef_[0]) if len(first) > 2 else 0.0
+    slope2 = float(LinearRegression().fit(x2, second.values).coef_[0]) if len(second) > 2 else 0.0
+
+    mean_abs = float(np.mean(np.abs(s))) + 1e-9
+    strength = 100 * abs(slope2 - slope1) / mean_abs
+    changed = strength > 0.7
+
+    if changed:
+        if abs(slope2) > abs(slope1):
+            msg = "Trend regime change detected; behavior became steeper."
+        else:
+            msg = "Trend regime change detected; behavior became softer."
+    else:
+        msg = "No major regime change detected."
+
+    return {
+        "changed": changed,
+        "strength": round(float(strength), 2),
+        "slope_first": round(slope1, 4),
+        "slope_second": round(slope2, 4),
+        "message": msg
+    }
+
+
+def score_water_breakthrough(df: pd.DataFrame, mapping: dict) -> float:
+    wc_col = mapping.get("water_cut")
+    prod_col = mapping.get("production")
+    if not wc_col or not prod_col:
+        return 0.0
+
+    wc = pd.to_numeric(df[wc_col], errors="coerce").dropna()
+    prod = pd.to_numeric(df[prod_col], errors="coerce").dropna()
+    if len(wc) < 8 or len(prod) < 8:
+        return 0.0
+
+    wc_change = max(float(wc.iloc[-1] - wc.iloc[0]), 0)
+    wc_accel = max(float(wc.diff().dropna().tail(5).mean()), 0)
+    prod_drop = max(float((prod.iloc[0] - prod.iloc[-1]) / (abs(prod.iloc[0]) + 1e-9)), 0)
+
+    score = wc_change * 900 + wc_accel * 8000 + prod_drop * 35
+    return round(max(min(score, 100), 0), 1)
+
+
+def score_gas_breakthrough(df: pd.DataFrame, mapping: dict) -> float:
+    gor_col = mapping.get("gor")
+    prod_col = mapping.get("production")
+    if not gor_col or not prod_col:
+        return 0.0
+
+    gor = pd.to_numeric(df[gor_col], errors="coerce").dropna()
+    prod = pd.to_numeric(df[prod_col], errors="coerce").dropna()
+    if len(gor) < 8 or len(prod) < 8:
+        return 0.0
+
+    gor_change = max(float(gor.iloc[-1] - gor.iloc[0]), 0)
+    gor_accel = max(float(gor.diff().dropna().tail(5).mean()), 0)
+    prod_drop = max(float((prod.iloc[0] - prod.iloc[-1]) / (abs(prod.iloc[0]) + 1e-9)), 0)
+
+    score = gor_change * 0.18 + gor_accel * 0.9 + prod_drop * 30
+    return round(max(min(score, 100), 0), 1)
+
+
+def compute_confidence_score(data_quality_score: float, best_cv_rmse: float, target_mean_abs: float) -> float:
+    if target_mean_abs <= 0:
+        return max(min(data_quality_score * 0.5, 100), 0)
+    error_ratio = 100 * best_cv_rmse / (target_mean_abs + 1e-9)
+    score = 0.65 * data_quality_score + 35 - 0.55 * error_ratio
+    return round(max(min(score, 100), 0), 1)
+
+
+def build_univariate_supervised(series: pd.Series) -> pd.DataFrame:
+    s = pd.to_numeric(series, errors="coerce").reset_index(drop=True)
+    df = pd.DataFrame({"y": s})
+    df["t"] = np.arange(len(df))
+    for lag in [1, 2, 3, 5, 7, 10]:
+        df[f"lag_{lag}"] = df["y"].shift(lag)
+    df["diff_1"] = df["y"].shift(1) - df["y"].shift(2)
+    df["diff_3"] = df["y"].shift(1) - df["y"].shift(4)
+    df["roll3"] = df["y"].shift(1).rolling(3).mean()
+    df["roll5"] = df["y"].shift(1).rolling(5).mean()
+    df["roll7"] = df["y"].shift(1).rolling(7).mean()
+    df["roll3_std"] = df["y"].shift(1).rolling(3).std()
+    df["roll7_std"] = df["y"].shift(1).rolling(7).std()
+    df["ema5"] = df["y"].shift(1).ewm(span=5, adjust=False).mean()
+    return df.dropna().reset_index(drop=True)
+
+
+def time_series_cv_score(X: pd.DataFrame, y: pd.Series, models: dict) -> tuple:
+    n = len(X)
+    n_splits = min(5, max(2, n // 25))
+    splitter = TimeSeriesSplit(n_splits=n_splits)
+    rows = []
+
+    for model_name, model in models.items():
+        rmses = []
+        r2s = []
+
+        for train_idx, test_idx in splitter.split(X):
+            X_train = X.iloc[train_idx]
+            y_train = y.iloc[train_idx]
+            X_test = X.iloc[test_idx]
+            y_test = y.iloc[test_idx]
+
+            mdl = model
+            mdl.fit(X_train, y_train)
+            pred = mdl.predict(X_test)
+
+            rmses.append(np.sqrt(mean_squared_error(y_test, pred)))
+            r2s.append(r2_score(y_test, pred))
+
+        rows.append({
+            "Model": model_name,
+            "CV_RMSE": float(np.mean(rmses)),
+            "CV_R2": float(np.mean(r2s))
+        })
+
+    res = pd.DataFrame(rows).sort_values("CV_RMSE").reset_index(drop=True)
+    return res.iloc[0]["Model"], res
+
+
+def recursive_feature_row(history_values: list, step_t: int) -> dict:
+    arr = np.array(history_values, dtype=float)
+    d = {"t": step_t}
+    for lag in [1, 2, 3, 5, 7, 10]:
+        d[f"lag_{lag}"] = arr[-lag] if len(arr) >= lag else arr[-1]
+    d["diff_1"] = d["lag_1"] - d["lag_2"]
+    d["diff_3"] = d["lag_1"] - d["lag_5"] if len(arr) >= 5 else d["lag_1"] - d["lag_2"]
+    d["roll3"] = float(np.mean(arr[-3:])) if len(arr) >= 3 else float(np.mean(arr))
+    d["roll5"] = float(np.mean(arr[-5:])) if len(arr) >= 5 else float(np.mean(arr))
+    d["roll7"] = float(np.mean(arr[-7:])) if len(arr) >= 7 else float(np.mean(arr))
+    d["roll3_std"] = float(np.std(arr[-3:])) if len(arr) >= 3 else 0.0
+    d["roll7_std"] = float(np.std(arr[-7:])) if len(arr) >= 7 else 0.0
+    if len(arr) >= 5:
+        ema = pd.Series(arr).ewm(span=5, adjust=False).mean().iloc[-1]
+    else:
+        ema = float(np.mean(arr))
+    d["ema5"] = float(ema)
+    return d
+
+
 def fit_decline_models(time_vals, q_vals):
     t = np.asarray(time_vals, dtype=float)
     q = np.asarray(q_vals, dtype=float)
@@ -710,651 +907,289 @@ def fit_decline_models(time_vals, q_vals):
     return best_name, results
 
 
-def calculate_eur(df, mapping, decline_results, best_decline_name):
-    prod_col = mapping.get("production")
-    time_col = mapping.get("time")
-    if not prod_col or not time_col or decline_results is None:
-        return None
-
-    x_num, _ = time_to_numeric(df[time_col])
-    q = pd.to_numeric(df[prod_col], errors="coerce").values
-    mask = np.isfinite(x_num) & np.isfinite(q) & (q > 0)
-    t = x_num[mask]
-    q = q[mask]
-
-    if len(q) < 5:
-        return None
-
-    q0 = q[0]
-    current_cum = np.sum(q)
-    future_t = np.arange(t[-1] + 1, t[-1] + 365 + 1, dtype=float)
-
-    if best_decline_name == "Exponential":
-        D = decline_results["Exponential"]["D"]
-        pred = q0 * np.exp(-D * (future_t - t[0]))
-    elif best_decline_name == "Harmonic":
-        D = decline_results["Harmonic"]["D"]
-        pred = q0 / (1 + D * (future_t - t[0]))
-    else:
-        b = decline_results["Hyperbolic"]["b"]
-        D = decline_results["Hyperbolic"]["D"]
-        pred = q0 / np.power(1 + b * D * (future_t - t[0]), 1.0 / b)
-
-    eur = current_cum + np.sum(np.maximum(pred, 0))
-    return round(float(eur), 2)
-
-
-def predictive_ai(df, mapping):
-    results = {}
-    time_col = mapping.get("time")
-    if not time_col:
-        return results
-
-    for key in ["production", "pressure", "water_cut", "gor"]:
-        col = mapping.get(key)
-        if not col:
-            continue
-
-        x, _ = time_to_numeric(df[time_col])
-        y = pd.to_numeric(df[col], errors="coerce").values
-        mask = np.isfinite(x) & np.isfinite(y)
-        x_clean = x[mask]
-        y_clean = y[mask]
-
-        if len(x_clean) < 10:
-            continue
-
-        model = LinearRegression()
-        model.fit(x_clean.reshape(-1, 1), y_clean)
-
-        horizon = 30
-        future_x = np.arange(x_clean[-1] + 1, x_clean[-1] + horizon + 1)
-        pred = model.predict(future_x.reshape(-1, 1))
-
-        results[key] = {
-            "future_x": future_x,
-            "pred": pred,
-            "historical_x": x_clean,
-            "historical_y": y_clean,
-            "slope": float(model.coef_[0]),
-        }
-
-    return results
-
-
-# =========================================================
-# ENGINEERING AI
-# =========================================================
-def estimate_drive_mechanism(df, mapping):
-    prod_col = mapping.get("production")
-    press_col = mapping.get("pressure")
-    wc_col = mapping.get("water_cut")
-    gor_col = mapping.get("gor")
-
-    if not prod_col or not press_col:
-        return "Insufficient data"
-
-    prod = pd.to_numeric(df[prod_col], errors="coerce").dropna()
-    press = pd.to_numeric(df[press_col], errors="coerce").dropna()
-    wc = pd.to_numeric(df[wc_col], errors="coerce").dropna() if wc_col else pd.Series(dtype=float)
-    gor = pd.to_numeric(df[gor_col], errors="coerce").dropna() if gor_col else pd.Series(dtype=float)
-
-    if len(prod) < 5 or len(press) < 5:
-        return "Insufficient data"
-
-    press_drop_pct = ((press.iloc[0] - press.iloc[-1]) / press.iloc[0]) * 100 if press.iloc[0] != 0 else 0
-    wc_rise = (wc.iloc[-1] - wc.iloc[0]) if len(wc) >= 5 else 0
-    gor_rise = (gor.iloc[-1] - gor.iloc[0]) if len(gor) >= 5 else 0
-
-    if wc_rise > 0.05 and press_drop_pct < 12:
-        return "Water Drive"
-    if gor_rise > 45 and press_drop_pct < 18:
-        return "Gas Cap Drive"
-    if press_drop_pct > 20 and gor_rise > 25:
-        return "Solution Gas Drive"
-    return "Mixed Drive"
-
-
-def reservoir_diagnostics(df, mapping):
-    findings = []
-
-    prod_col = mapping.get("production")
-    press_col = mapping.get("pressure")
-    wc_col = mapping.get("water_cut")
-    gor_col = mapping.get("gor")
-
-    prod = pd.to_numeric(df[prod_col], errors="coerce").dropna() if prod_col else pd.Series(dtype=float)
-    press = pd.to_numeric(df[press_col], errors="coerce").dropna() if press_col else pd.Series(dtype=float)
-    wc = pd.to_numeric(df[wc_col], errors="coerce").dropna() if wc_col else pd.Series(dtype=float)
-    gor = pd.to_numeric(df[gor_col], errors="coerce").dropna() if gor_col else pd.Series(dtype=float)
-
-    if len(prod) >= 5 and len(wc) >= 5:
-        if prod.iloc[-1] < prod.iloc[0] and (wc.iloc[-1] - wc.iloc[0]) > 0.03:
-            findings.append("Possible water breakthrough detected.")
-            if wc.iloc[-1] > 0.45:
-                findings.append("Water trend may match edge-water support or water coning.")
-
-    if len(prod) >= 5 and len(gor) >= 5:
-        if prod.iloc[-1] < prod.iloc[0] and (gor.iloc[-1] - gor.iloc[0]) > 35:
-            findings.append("Possible gas breakthrough detected.")
-            if gor.iloc[-1] > gor.mean() * 1.15:
-                findings.append("Gas behavior may suggest gas-cap expansion or gas coning.")
-
-    if len(prod) >= 5 and len(press) >= 5:
-        if prod.iloc[-1] < prod.iloc[0] and press.iloc[-1] < press.iloc[0]:
-            findings.append("Production decline is consistent with reservoir pressure depletion.")
-
-    if not findings:
-        findings.append("No dominant reservoir pattern detected from current data.")
-
-    return findings
-
-
-def calculate_risk_scores(df, mapping):
-    prod_col = mapping.get("production")
-    press_col = mapping.get("pressure")
-    wc_col = mapping.get("water_cut")
-    gor_col = mapping.get("gor")
-
-    prod = pd.to_numeric(df[prod_col], errors="coerce").dropna() if prod_col else pd.Series(dtype=float)
-    press = pd.to_numeric(df[press_col], errors="coerce").dropna() if press_col else pd.Series(dtype=float)
-    wc = pd.to_numeric(df[wc_col], errors="coerce").dropna() if wc_col else pd.Series(dtype=float)
-    gor = pd.to_numeric(df[gor_col], errors="coerce").dropna() if gor_col else pd.Series(dtype=float)
-
-    water_risk = 0.0
-    gas_risk = 0.0
-    depletion_risk = 0.0
-    anomaly_risk = 0.0
-
-    if len(wc) >= 5:
-        water_risk = min(max((wc.iloc[-1] - wc.iloc[0]) * 1200, 0), 100)
-    if len(gor) >= 5:
-        gas_risk = min(max((gor.iloc[-1] - gor.iloc[0]) * 1.2, 0), 100)
-    if len(press) >= 5:
-        depletion_risk = min(max((press.iloc[0] - press.iloc[-1]) / 8, 0), 100)
-    if prod_col:
-        anomalies = int(detect_outliers_iqr(df[prod_col]).fillna(False).sum())
-        anomaly_risk = min(anomalies * 15, 100)
-
-    return {
-        "water_risk": round(water_risk, 1),
-        "gas_risk": round(gas_risk, 1),
-        "depletion_risk": round(depletion_risk, 1),
-        "anomaly_risk": round(anomaly_risk, 1),
-    }
-
-
-def calculate_reservoir_health_score(df, mapping, risks):
-    score = 100.0
-    score -= risks["water_risk"] * 0.25
-    score -= risks["gas_risk"] * 0.20
-    score -= risks["depletion_risk"] * 0.25
-    score -= risks["anomaly_risk"] * 0.15
-
-    prod_col = mapping.get("production")
-    if prod_col:
-        prod = pd.to_numeric(df[prod_col], errors="coerce").dropna()
-        if len(prod) >= 5 and prod.iloc[0] != 0:
-            prod_decline_pct = ((prod.iloc[0] - prod.iloc[-1]) / prod.iloc[0]) * 100
-            score -= max(prod_decline_pct, 0) * 0.20
-
-    return max(min(round(score, 1), 100), 0)
-
-
-def calculate_production_efficiency_score(df, mapping):
-    prod_col = mapping.get("production")
-    wc_col = mapping.get("water_cut")
-    press_col = mapping.get("pressure")
-    gor_col = mapping.get("gor")
-
-    if not prod_col:
-        return 0.0
-
-    prod = pd.to_numeric(df[prod_col], errors="coerce").dropna()
-    if len(prod) < 5:
-        return 0.0
-
-    current_prod = prod.iloc[-1]
-    peak_prod = prod.max()
-    production_factor = (current_prod / peak_prod) * 100 if peak_prod > 0 else 0
-
-    wc_penalty = 0
-    if wc_col:
-        wc = pd.to_numeric(df[wc_col], errors="coerce").dropna()
-        if len(wc) >= 5:
-            wc_penalty = min(wc.iloc[-1] * 35, 35)
-
-    press_penalty = 0
-    if press_col:
-        press = pd.to_numeric(df[press_col], errors="coerce").dropna()
-        if len(press) >= 5 and press.iloc[0] > 0:
-            drop_pct = ((press.iloc[0] - press.iloc[-1]) / press.iloc[0]) * 100
-            press_penalty = min(max(drop_pct * 0.6, 0), 25)
-
-    gor_penalty = 0
-    if gor_col:
-        gor = pd.to_numeric(df[gor_col], errors="coerce").dropna()
-        if len(gor) >= 5:
-            gor_increase = max(gor.iloc[-1] - gor.iloc[0], 0)
-            gor_penalty = min(gor_increase * 0.05, 15)
-
-    score = production_factor - wc_penalty - press_penalty - gor_penalty
-    return round(max(min(score, 100), 0), 1)
-
-
-def classify_well(df, mapping, risks):
-    prod_col = mapping.get("production")
-    press_col = mapping.get("pressure")
-    wc_col = mapping.get("water_cut")
-    gor_col = mapping.get("gor")
-
-    prod = pd.to_numeric(df[prod_col], errors="coerce").dropna() if prod_col else pd.Series(dtype=float)
-    press = pd.to_numeric(df[press_col], errors="coerce").dropna() if press_col else pd.Series(dtype=float)
-    wc = pd.to_numeric(df[wc_col], errors="coerce").dropna() if wc_col else pd.Series(dtype=float)
-    gor = pd.to_numeric(df[gor_col], errors="coerce").dropna() if gor_col else pd.Series(dtype=float)
-
-    prod_change = prod.iloc[-1] - prod.iloc[0] if len(prod) >= 5 else 0
-    press_change = press.iloc[-1] - press.iloc[0] if len(press) >= 5 else 0
-    wc_change = wc.iloc[-1] - wc.iloc[0] if len(wc) >= 5 else 0
-    gor_change = gor.iloc[-1] - gor.iloc[0] if len(gor) >= 5 else 0
-
-    if risks["anomaly_risk"] >= 45:
-        return "Data-Anomaly Well"
-    if prod_change < 0 and wc_change > 0.03 and risks["water_risk"] >= 40:
-        return "Water-Risk Well"
-    if prod_change < 0 and gor_change > 30 and risks["gas_risk"] >= 40:
-        return "Gas-Risk Well"
-    if prod_change < 0 and press_change < 0 and risks["depletion_risk"] >= 35:
-        return "Pressure-Depletion Well"
-    if prod_change < 0:
-        return "Declining Well"
-    return "Stable / Improving Well"
-
-
-def detect_underperforming_well(df, mapping):
-    well_col = mapping.get("well")
-    prod_col = mapping.get("production")
-    if not well_col or not prod_col:
-        return None, None
-
-    ranking = rank_wells(df, well_col, prod_col)
-    if len(ranking) == 0:
-        return None, None
-
-    worst_well = ranking.iloc[-1][well_col]
-    worst_avg = ranking.iloc[-1]["Average_Production"]
-    return worst_well, worst_avg
-
-
-def estimate_production_loss(df, mapping):
-    prod_col = mapping.get("production")
-    if not prod_col:
-        return None
-
-    prod = pd.to_numeric(df[prod_col], errors="coerce").dropna()
-    if len(prod) < 10:
-        return None
-
-    potential = float(prod.quantile(0.90))
-    actual = float(prod.iloc[-1])
-    loss = max(potential - actual, 0)
-    return {
-        "potential": round(potential, 2),
-        "actual": round(actual, 2),
-        "loss": round(loss, 2)
-    }
-
-
-def well_problem_detection(df, mapping, risks):
-    problems = []
-
-    prod_col = mapping.get("production")
-    press_col = mapping.get("pressure")
-
-    prod = pd.to_numeric(df[prod_col], errors="coerce").dropna() if prod_col else pd.Series(dtype=float)
-    press = pd.to_numeric(df[press_col], errors="coerce").dropna() if press_col else pd.Series(dtype=float)
-
-    if len(prod) >= 5 and len(press) >= 5:
-        if prod.iloc[-1] < prod.iloc[0] and abs(press.iloc[-1] - press.iloc[0]) < 10:
-            problems.append("Possible tubing, choke, scale, or near-wellbore restriction.")
-
-    if risks["water_risk"] > 40:
-        problems.append("Possible water coning or water breakthrough.")
-    if risks["gas_risk"] > 40:
-        problems.append("Possible gas coning or gas breakthrough.")
-    if risks["anomaly_risk"] > 30:
-        problems.append("Potential sensor issue or unstable operating condition.")
-    if len(prod) >= 5 and len(press) >= 5:
-        if prod.iloc[-1] < prod.iloc[0] and press.iloc[-1] < press.iloc[0]:
-            problems.append("Reservoir support may be weakening under current production conditions.")
-
-    if not problems:
-        problems.append("No dominant well problem detected from current data.")
-    return problems
-
-
-def artificial_lift_suggestions(df, mapping, risks):
-    suggestions = []
-
-    prod_col = mapping.get("production")
-    press_col = mapping.get("pressure")
-    wc_col = mapping.get("water_cut")
-
-    prod = pd.to_numeric(df[prod_col], errors="coerce").dropna() if prod_col else pd.Series(dtype=float)
-    press = pd.to_numeric(df[press_col], errors="coerce").dropna() if press_col else pd.Series(dtype=float)
-    wc = pd.to_numeric(df[wc_col], errors="coerce").dropna() if wc_col else pd.Series(dtype=float)
-
-    if len(prod) >= 5 and len(press) >= 5:
-        if prod.iloc[-1] < prod.iloc[0] and press.iloc[-1] < press.iloc[0]:
-            suggestions.append("Consider artificial lift review such as gas lift or ESP optimization.")
-
-    if len(wc) >= 5 and wc.iloc[-1] > 0.35:
-        suggestions.append("High water cut may reduce lift efficiency; review lift design and water handling.")
-
-    if not suggestions:
-        suggestions.append("Current data does not strongly require artificial lift intervention.")
-    return suggestions
-
-
-def workover_recommendations(df, mapping, risks):
-    recs = []
-
-    if risks["water_risk"] > 40:
-        recs.append("Evaluate water shutoff or coning control workover.")
-    if risks["gas_risk"] > 40:
-        recs.append("Review gas control strategy and completion behavior.")
-    if risks["depletion_risk"] > 40:
-        recs.append("Consider reservoir management actions before aggressive workover.")
-    if risks["anomaly_risk"] > 30:
-        recs.append("Inspect instrumentation and production stability before intervention.")
-
-    prod_col = mapping.get("production")
-    press_col = mapping.get("pressure")
-    if prod_col and press_col:
-        prod = pd.to_numeric(df[prod_col], errors="coerce").dropna()
-        press = pd.to_numeric(df[press_col], errors="coerce").dropna()
-        if len(prod) >= 5 and len(press) >= 5:
-            if prod.iloc[-1] < prod.iloc[0] and abs(press.iloc[-1] - press.iloc[0]) < 10:
-                recs.append("Consider stimulation, scale removal, or tubing/choke inspection.")
-
-    if not recs:
-        recs.append("No strong workover recommendation at this stage.")
-    return recs
-
-
-def production_optimization_recommendations(df, mapping, risks):
-    recs = []
-
-    if risks["water_risk"] > 40:
-        recs.append("Investigate water breakthrough and evaluate water shutoff options.")
-    if risks["gas_risk"] > 40:
-        recs.append("Review gas handling and gas breakthrough behavior.")
-    if risks["depletion_risk"] > 40:
-        recs.append("Assess pressure support strategy and reservoir-management actions.")
-    if risks["anomaly_risk"] > 30:
-        recs.append("Validate sensor quality and investigate unstable operating conditions.")
-
-    prod_col = mapping.get("production")
-    press_col = mapping.get("pressure")
-    if prod_col and press_col:
-        prod = pd.to_numeric(df[prod_col], errors="coerce").dropna()
-        press = pd.to_numeric(df[press_col], errors="coerce").dropna()
-        if len(prod) >= 5 and len(press) >= 5:
-            if prod.iloc[-1] < prod.iloc[0] and abs(press.iloc[-1] - press.iloc[0]) < 10:
-                recs.append("Production decline with near-stable pressure may indicate flow restriction.")
-
-    if not recs:
-        recs.append("Maintain current operating strategy and continue monitoring.")
-    return recs
-
-
-def ai_summary(df, mapping):
-    insights, recs = [], []
-
-    prod_col = mapping.get("production")
-    press_col = mapping.get("pressure")
-    wc_col = mapping.get("water_cut")
-    gor_col = mapping.get("gor")
-
-    prod = pd.to_numeric(df[prod_col], errors="coerce") if prod_col else pd.Series(dtype=float)
-    press = pd.to_numeric(df[press_col], errors="coerce") if press_col else pd.Series(dtype=float)
-    wc = pd.to_numeric(df[wc_col], errors="coerce") if wc_col else pd.Series(dtype=float)
-    gor = pd.to_numeric(df[gor_col], errors="coerce") if gor_col else pd.Series(dtype=float)
-
-    prod_clean = prod.dropna()
-    press_clean = press.dropna()
-    wc_clean = wc.dropna()
-    gor_clean = gor.dropna()
-
-    risks = calculate_risk_scores(df, mapping)
-    health_score = calculate_reservoir_health_score(df, mapping, risks)
-    efficiency_score = calculate_production_efficiency_score(df, mapping)
-    well_class = classify_well(df, mapping, risks)
-    drive_mech = estimate_drive_mechanism(df, mapping)
-
-    if len(prod_clean) >= 5 and prod_clean.iloc[0] != 0:
-        prod_start, prod_end = prod_clean.iloc[0], prod_clean.iloc[-1]
-        prod_change = prod_end - prod_start
-        prod_pct = (prod_change / prod_start) * 100
-
-        if prod_change < 0:
-            insights.append(f"Production declined by {abs(prod_pct):.1f}% over the analyzed period.")
-            recs.append("Review production decline versus expected reservoir performance.")
-        else:
-            insights.append(f"Production increased by {prod_pct:.1f}% over the analyzed period.")
-
-        slope = float(LinearRegression().fit(np.arange(len(prod_clean)).reshape(-1, 1), prod_clean.values).coef_[0])
-        if slope < -10:
-            insights.append("Production trend severity: severe decline.")
-        elif slope < -3:
-            insights.append("Production trend severity: moderate decline.")
-        elif slope < 0:
-            insights.append("Production trend severity: mild decline.")
-        else:
-            insights.append("Production trend severity: stable to improving.")
-
-        n_out = int(detect_outliers_iqr(df[prod_col]).fillna(False).sum())
-        if n_out > 0:
-            insights.append(f"{n_out} production anomaly point(s) detected.")
-            recs.append("Validate abnormal spikes or drops before making decisions.")
-
-    if len(press_clean) >= 5:
-        press_drop = press_clean.iloc[0] - press_clean.iloc[-1]
-        if press_drop > 0:
-            insights.append(f"Reservoir pressure dropped by {press_drop:.1f} units.")
-            recs.append("Evaluate pressure maintenance and depletion support.")
-
-    if len(wc_clean) >= 5:
-        wc_change = wc_clean.iloc[-1] - wc_clean.iloc[0]
-        if wc_change > 0.03:
-            insights.append(f"Water cut increased by {wc_change:.3f}.")
-            recs.append("Investigate water breakthrough, coning, or sweep changes.")
-        elif wc_change > 0:
-            insights.append("Water cut is rising gradually.")
-
-    if len(gor_clean) >= 5:
-        gor_change = gor_clean.iloc[-1] - gor_clean.iloc[0]
-        if gor_change > 30:
-            insights.append(f"GOR increased by {gor_change:.1f}.")
-            recs.append("Review gas behavior and possible breakthrough.")
-        elif gor_change > 0:
-            insights.append("GOR is trending upward slightly.")
-
-    if len(prod_clean) >= 5 and len(press_clean) >= 5:
-        tmp = pd.DataFrame({
-            "prod": prod_clean.reset_index(drop=True),
-            "press": press_clean.reset_index(drop=True)
-        }).dropna()
-        if len(tmp) >= 5:
-            corr = tmp["prod"].corr(tmp["press"])
-            insights.append(f"Production-pressure correlation = {corr:.2f}.")
-            if corr > 0.5:
-                recs.append("Production appears strongly linked to pressure depletion.")
-
-    insights.extend(reservoir_diagnostics(df, mapping))
-    insights.append(f"Estimated drive mechanism: {drive_mech}.")
-    insights.append(f"Well status: {well_class}.")
-    insights.append(f"Reservoir health score: {health_score}/100.")
-    insights.append(f"Production efficiency score: {efficiency_score}/100.")
-    insights.append(
-        f"Risk scores → Water: {risks['water_risk']}, Gas: {risks['gas_risk']}, Depletion: {risks['depletion_risk']}, Data quality: {risks['anomaly_risk']}."
-    )
-
-    prod_opt = production_optimization_recommendations(df, mapping, risks)
-    workover = workover_recommendations(df, mapping, risks)
-    lift_recs = artificial_lift_suggestions(df, mapping, risks)
-    well_probs = well_problem_detection(df, mapping, risks)
-
-    for item in prod_opt + workover:
-        if item not in recs:
-            recs.append(item)
-
-    return {
-        "insights": insights,
-        "recommendations": recs,
-        "well_class": well_class,
-        "risks": risks,
-        "health_score": health_score,
-        "efficiency_score": efficiency_score,
-        "lift_recs": lift_recs,
-        "well_problems": well_probs,
-        "drive_mechanism": drive_mech
-    }
-
-
-# =========================================================
-# ML
-# =========================================================
-def prepare_ml_dataset(df, mapping, target_key="production"):
-    time_col = mapping.get("time")
+def hybrid_forecast_engine(df: pd.DataFrame, mapping: dict, target_key: str = "production", horizon: int = 30) -> dict:
     target_col = mapping.get(target_key)
-    if not time_col or not target_col:
-        return None, None, None
+    time_col = mapping.get("time")
+    if not target_col:
+        return {"ok": False, "reason": "Target column not mapped."}
 
-    feature_cols = []
-    for key in ["pressure", "water_cut", "gor"]:
-        col = mapping.get(key)
-        if col and col != target_col:
-            feature_cols.append(col)
+    s = pd.to_numeric(df[target_col], errors="coerce").dropna().reset_index(drop=True)
+    if len(s) < 25:
+        return {"ok": False, "reason": "Not enough clean data for advanced forecast."}
 
-    work = df.copy()
-    x_time, _ = time_to_numeric(work[time_col])
-    work["_time_numeric"] = x_time
+    supervised = build_univariate_supervised(s)
+    if len(supervised) < 20:
+        return {"ok": False, "reason": "Not enough supervised rows."}
 
-    use_cols = ["_time_numeric"] + feature_cols + [target_col]
-    work = work[use_cols].apply(pd.to_numeric, errors="coerce").dropna()
-
-    if len(work) < 30:
-        return None, None, None
-
-    X = work.drop(columns=[target_col])
-    y = work[target_col]
-    return X, y, list(X.columns)
-
-
-def train_ml_models(df, mapping, target_key="production"):
-    X, y, feature_names = prepare_ml_dataset(df, mapping, target_key)
-    if X is None:
-        return None
-
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
+    X = supervised.drop(columns=["y"])
+    y = supervised["y"]
 
     models = {
-        "Random Forest": RandomForestRegressor(n_estimators=150, random_state=42),
+        "Random Forest": RandomForestRegressor(n_estimators=220, random_state=42),
+        "Extra Trees": ExtraTreesRegressor(n_estimators=260, random_state=42),
         "Gradient Boosting": GradientBoostingRegressor(random_state=42),
-        "Neural Network": MLPRegressor(hidden_layer_sizes=(64, 32), max_iter=800, random_state=42),
+        "HistGradientBoosting": HistGradientBoostingRegressor(random_state=42),
     }
 
-    results = []
-    trained = {}
+    best_model_name, cv_df = time_series_cv_score(X, y, models)
+    best_model = models[best_model_name]
+    best_model.fit(X, y)
 
-    for name, model in models.items():
-        model.fit(X_train, y_train)
-        pred = model.predict(X_test)
-        rmse = float(np.sqrt(mean_squared_error(y_test, pred)))
-        r2 = float(r2_score(y_test, pred))
-        results.append({"Model": name, "RMSE": rmse, "R2": r2})
-        trained[name] = model
+    history = list(s.values)
+    future_pred = []
 
-    results_df = pd.DataFrame(results).sort_values("RMSE").reset_index(drop=True)
-    best_model_name = results_df.iloc[0]["Model"]
-    best_model = trained[best_model_name]
+    for step in range(1, horizon + 1):
+        row = recursive_feature_row(history, len(history) + step - 1)
+        pred = float(best_model.predict(pd.DataFrame([row]))[0])
 
-    last_row = X.iloc[-1].copy()
-    future_rows = []
-    for i in range(1, 31):
-        new_row = last_row.copy()
-        new_row["_time_numeric"] = last_row["_time_numeric"] + i
-        future_rows.append(new_row)
-    future_X = pd.DataFrame(future_rows)
-    future_pred = best_model.predict(future_X)
+        if target_key in ["production", "pressure"]:
+            pred = max(pred, 0.0)
+        if target_key == "water_cut":
+            pred = max(min(pred, 0.99), 0.0)
+        if target_key == "gor":
+            pred = max(pred, 0.0)
+
+        history.append(pred)
+        future_pred.append(pred)
+
+    future_pred = np.array(future_pred, dtype=float)
+
+    decline_name = None
+    decline_pred = None
+    blend_weight_ml = 1.0
+
+    if target_key == "production" and time_col:
+        x_num, _ = time_to_numeric(df[time_col])
+        q = pd.to_numeric(df[target_col], errors="coerce").values
+        fit = fit_decline_models(x_num, q)
+        if fit is not None:
+            decline_name, results = fit
+            mask = np.isfinite(x_num) & np.isfinite(q) & (q > 0)
+            t = x_num[mask]
+            q_clean = q[mask]
+            q0 = q_clean[0]
+            future_t = np.arange(t[-1] + 1, t[-1] + horizon + 1, dtype=float)
+
+            if decline_name == "Exponential":
+                D = results["Exponential"]["D"]
+                decline_pred = q0 * np.exp(-D * (future_t - t[0]))
+                decline_rmse = results["Exponential"]["rmse"]
+            elif decline_name == "Harmonic":
+                D = results["Harmonic"]["D"]
+                decline_pred = q0 / (1 + D * (future_t - t[0]))
+                decline_rmse = results["Harmonic"]["rmse"]
+            else:
+                b = results["Hyperbolic"]["b"]
+                D = results["Hyperbolic"]["D"]
+                decline_pred = q0 / np.power(1 + b * D * (future_t - t[0]), 1.0 / b)
+                decline_rmse = results["Hyperbolic"]["rmse"]
+
+            ml_rmse = float(cv_df.iloc[0]["CV_RMSE"])
+            inv_ml = 1 / (ml_rmse + 1e-9)
+            inv_decl = 1 / (decline_rmse + 1e-9)
+            blend_weight_ml = float(inv_ml / (inv_ml + inv_decl))
+            future_pred = blend_weight_ml * future_pred + (1 - blend_weight_ml) * decline_pred
+
+    train_pred = best_model.predict(X)
+    residual_sigma = float(np.std(y - train_pred))
+    lower = future_pred - 1.96 * residual_sigma
+    upper = future_pred + 1.96 * residual_sigma
+
+    target_mean_abs = float(np.mean(np.abs(y))) if len(y) else 1.0
+    dq = quality_score_from_series(s)
+    confidence = compute_confidence_score(dq["score"], float(cv_df.iloc[0]["CV_RMSE"]), target_mean_abs)
 
     return {
-        "results_df": results_df,
-        "best_model_name": best_model_name,
+        "ok": True,
+        "target_key": target_key,
+        "historical_y": s.values,
+        "historical_idx": np.arange(len(s)),
+        "future_idx": np.arange(len(s), len(s) + horizon),
         "future_pred": future_pred,
-        "feature_names": feature_names,
-        "historical_y": y.values,
-        "historical_idx": np.arange(len(y)),
-        "future_idx": np.arange(len(y), len(y) + len(future_pred))
+        "lower": lower,
+        "upper": upper,
+        "best_model_name": best_model_name,
+        "cv_results": cv_df,
+        "confidence": confidence,
+        "residual_sigma": residual_sigma,
+        "decline_name": decline_name,
+        "blend_weight_ml": round(blend_weight_ml, 3),
+    }
+
+
+def advanced_ai_analysis(df: pd.DataFrame, mapping: dict) -> dict:
+    quality = evaluate_data_quality(df, mapping)
+    prod_col = mapping.get("production")
+    press_col = mapping.get("pressure")
+    wc_col = mapping.get("water_cut")
+    gor_col = mapping.get("gor")
+
+    insights = []
+    evidence = []
+    recommendations = []
+    limitations = []
+
+    regime_prod = detect_regime_change(df[prod_col]) if prod_col else {"changed": False, "message": "No production"}
+    regime_press = detect_regime_change(df[press_col]) if press_col else {"changed": False, "message": "No pressure"}
+
+    water_break_score = score_water_breakthrough(df, mapping)
+    gas_break_score = score_gas_breakthrough(df, mapping)
+
+    prod = pd.to_numeric(df[prod_col], errors="coerce").dropna() if prod_col else pd.Series(dtype=float)
+    press = pd.to_numeric(df[press_col], errors="coerce").dropna() if press_col else pd.Series(dtype=float)
+    wc = pd.to_numeric(df[wc_col], errors="coerce").dropna() if wc_col else pd.Series(dtype=float)
+    gor = pd.to_numeric(df[gor_col], errors="coerce").dropna() if gor_col else pd.Series(dtype=float)
+
+    if len(prod) >= 8 and prod.iloc[0] != 0:
+        prod_drop_pct = 100 * (prod.iloc[0] - prod.iloc[-1]) / abs(prod.iloc[0])
+        evidence.append(f"Production moved from {prod.iloc[0]:.2f} to {prod.iloc[-1]:.2f} ({prod_drop_pct:.1f}% change).")
+        if prod_drop_pct > 10:
+            insights.append("Production has materially declined over the observed period.")
+            recommendations.append("Review whether decline is reservoir-driven, operational, or both.")
+
+    if len(press) >= 8:
+        press_drop = float(press.iloc[0] - press.iloc[-1])
+        evidence.append(f"Pressure changed by {press_drop:.2f} units over the analyzed window.")
+        if press_drop > 0:
+            insights.append("Pressure depletion signal is present.")
+            recommendations.append("Check depletion support and pressure-maintenance strategy.")
+
+    if len(wc) >= 8:
+        wc_change = float(wc.iloc[-1] - wc.iloc[0])
+        evidence.append(f"Water cut changed by {wc_change:.4f}.")
+        if wc_change > 0.03:
+            insights.append("Water cut growth is strong enough to deserve engineering attention.")
+            recommendations.append("Investigate water breakthrough, coning, sweep efficiency, or completion behavior.")
+
+    if len(gor) >= 8:
+        gor_change = float(gor.iloc[-1] - gor.iloc[0])
+        evidence.append(f"GOR changed by {gor_change:.2f}.")
+        if gor_change > 30:
+            insights.append("GOR increase suggests stronger gas influence in the production behavior.")
+            recommendations.append("Check gas-cap behavior, gas breakthrough, and flowing conditions.")
+
+    if regime_prod.get("changed"):
+        insights.append("Production trend regime change detected.")
+        evidence.append(regime_prod["message"])
+        recommendations.append("Separate historical performance into more stable operating periods before making decisions.")
+
+    if regime_press.get("changed"):
+        insights.append("Pressure trend regime change detected.")
+        evidence.append(regime_press["message"])
+
+    if water_break_score >= 55:
+        insights.append("Water breakthrough risk is high.")
+        evidence.append(f"Water breakthrough score = {water_break_score}/100.")
+    elif water_break_score >= 30:
+        insights.append("Water breakthrough risk is moderate.")
+        evidence.append(f"Water breakthrough score = {water_break_score}/100.")
+
+    if gas_break_score >= 55:
+        insights.append("Gas breakthrough risk is high.")
+        evidence.append(f"Gas breakthrough score = {gas_break_score}/100.")
+    elif gas_break_score >= 30:
+        insights.append("Gas breakthrough risk is moderate.")
+        evidence.append(f"Gas breakthrough score = {gas_break_score}/100.")
+
+    if quality["overall_score"] < 60:
+        limitations.append("Data quality is weak; model outputs should be treated carefully.")
+        recommendations.append("Clean the dataset and validate suspicious points before relying on the forecast.")
+    elif quality["overall_score"] < 80:
+        limitations.append("Data quality is moderate; forecast confidence is acceptable but not ideal.")
+    else:
+        evidence.append(f"Overall data quality score = {quality['overall_score']}/100.")
+
+    if not insights:
+        insights.append("No dominant abnormal engineering pattern was detected with high confidence.")
+
+    return {
+        "quality": quality,
+        "regime_prod": regime_prod,
+        "regime_press": regime_press,
+        "water_break_score": water_break_score,
+        "gas_break_score": gas_break_score,
+        "insights": insights,
+        "evidence": evidence,
+        "recommendations": list(dict.fromkeys(recommendations)),
+        "limitations": list(dict.fromkeys(limitations)),
     }
 
 
 # =========================================================
 # REPORT / PDF
 # =========================================================
-def generate_ai_report_text(df, mapping, selected_well, ai_pack, best_decline_name, decline_params_text, eur_value, ml_info):
+def generate_ai_report_text(
+    df,
+    mapping,
+    selected_well,
+    ai_pack,
+    advanced_pack,
+    forecast_pack,
+    best_decline_name,
+    decline_params_text,
+    eur_value
+):
     lines = []
-    lines.append("PETROSCOPE WORKSPACE REPORT")
-    lines.append("=" * 64)
+    lines.append("PETROSCOPE ADVANCED AI REPORT")
+    lines.append("=" * 72)
     lines.append(f"Rows analyzed: {len(df)}")
     if selected_well is not None:
         lines.append(f"Selected well: {selected_well}")
+
     lines.append(f"Well status: {ai_pack['well_class']}")
     lines.append(f"Estimated drive mechanism: {ai_pack['drive_mechanism']}")
     lines.append(f"Reservoir health score: {ai_pack['health_score']}/100")
     lines.append(f"Production efficiency score: {ai_pack['efficiency_score']}/100")
+    lines.append(f"Water breakthrough score: {advanced_pack['water_break_score']}/100")
+    lines.append(f"Gas breakthrough score: {advanced_pack['gas_break_score']}/100")
+    lines.append(f"Data quality score: {advanced_pack['quality']['overall_score']}/100")
+
     if best_decline_name:
         lines.append(f"Best decline model: {best_decline_name}")
     if decline_params_text:
         lines.append(f"Decline parameters: {decline_params_text}")
     if eur_value is not None:
         lines.append(f"Estimated EUR: {eur_value}")
-    if ml_info is not None:
-        lines.append(f"Best ML model: {ml_info['best_model_name']}")
-    lines.append("")
 
+    if forecast_pack and forecast_pack.get("ok"):
+        lines.append(f"Best forecast model: {forecast_pack['best_model_name']}")
+        lines.append(f"Forecast confidence: {forecast_pack['confidence']}/100")
+        if forecast_pack.get("decline_name"):
+            lines.append(f"Hybrid blend: ML + {forecast_pack['decline_name']} (ML weight = {forecast_pack['blend_weight_ml']})")
+
+    lines.append("")
     lines.append("Mapped Columns:")
     for k, v in mapping.items():
         if v:
             lines.append(f"- {k}: {v}")
 
     lines.append("")
-    lines.append("Risk Scores:")
-    lines.append(f"- Water risk: {ai_pack['risks']['water_risk']}/100")
-    lines.append(f"- Gas risk: {ai_pack['risks']['gas_risk']}/100")
-    lines.append(f"- Depletion risk: {ai_pack['risks']['depletion_risk']}/100")
-    lines.append(f"- Data quality risk: {ai_pack['risks']['anomaly_risk']}/100")
+    lines.append("Main Findings:")
+    for item in advanced_pack["insights"]:
+        lines.append(f"* {item}")
 
     lines.append("")
-    lines.append("Findings:")
-    for item in ai_pack["insights"]:
+    lines.append("Evidence:")
+    for item in advanced_pack["evidence"]:
         lines.append(f"* {item}")
 
     lines.append("")
     lines.append("Suggested Actions:")
-    for item in ai_pack["recommendations"]:
+    for item in list(dict.fromkeys(ai_pack["recommendations"] + advanced_pack["recommendations"])):
         lines.append(f"* {item}")
 
     lines.append("")
-    lines.append("Artificial Lift Notes:")
-    for item in ai_pack["lift_recs"]:
-        lines.append(f"* {item}")
+    lines.append("Limitations:")
+    if advanced_pack["limitations"]:
+        for item in advanced_pack["limitations"]:
+            lines.append(f"* {item}")
+    else:
+        lines.append("* No major limitations detected from current data quality checks.")
 
     return "\n".join(lines)
 
 
-def create_pdf_report(ai_pack, best_decline_name, decline_params_text, eur_value, ml_info):
+def create_pdf_report(ai_pack, advanced_pack, forecast_pack, best_decline_name, decline_params_text, eur_value):
     temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     c = canvas.Canvas(temp.name, pagesize=letter)
     _, height = letter
@@ -1369,30 +1204,31 @@ def create_pdf_report(ai_pack, best_decline_name, decline_params_text, eur_value
         c.drawString(50, y, text[:110])
         y -= step
 
-    draw_line("PetroScope Workspace Report", font="Helvetica-Bold", size=16, step=24)
+    draw_line("PetroScope Advanced AI Report", font="Helvetica-Bold", size=16, step=24)
     draw_line(f"Well status: {ai_pack['well_class']}", size=11)
     draw_line(f"Estimated drive mechanism: {ai_pack['drive_mechanism']}", size=11)
     draw_line(f"Reservoir health score: {ai_pack['health_score']}/100", size=11)
     draw_line(f"Production efficiency score: {ai_pack['efficiency_score']}/100", size=11)
+    draw_line(f"Water breakthrough score: {advanced_pack['water_break_score']}/100", size=11)
+    draw_line(f"Gas breakthrough score: {advanced_pack['gas_break_score']}/100", size=11)
+    draw_line(f"Data quality score: {advanced_pack['quality']['overall_score']}/100", size=11)
     draw_line(f"Best decline model: {best_decline_name if best_decline_name else '-'}", size=11)
     draw_line(f"Decline parameters: {decline_params_text if decline_params_text else '-'}", size=11)
     draw_line(f"EUR: {eur_value if eur_value is not None else '-'}", size=11)
-    draw_line(f"Best ML model: {ml_info['best_model_name'] if ml_info is not None else '-'}", size=11, step=22)
+    draw_line(f"Forecast model: {forecast_pack['best_model_name'] if forecast_pack and forecast_pack.get('ok') else '-'}", size=11)
+    draw_line(f"Forecast confidence: {forecast_pack['confidence'] if forecast_pack and forecast_pack.get('ok') else '-'}", size=11, step=22)
 
-    draw_line("Risk Scores", font="Helvetica-Bold", size=12, step=18)
-    for k, v in ai_pack["risks"].items():
-        draw_line(f"- {k}: {v}")
-
-    draw_line("Findings", font="Helvetica-Bold", size=12, step=18)
-    for item in ai_pack["insights"][:8]:
+    draw_line("Main Findings", font="Helvetica-Bold", size=12, step=18)
+    for item in advanced_pack["insights"][:8]:
         draw_line(f"- {item}")
 
-    draw_line("Suggested Actions", font="Helvetica-Bold", size=12, step=18)
-    for item in ai_pack["recommendations"][:8]:
+    draw_line("Evidence", font="Helvetica-Bold", size=12, step=18)
+    for item in advanced_pack["evidence"][:8]:
         draw_line(f"- {item}")
 
-    draw_line("Artificial Lift Notes", font="Helvetica-Bold", size=12, step=18)
-    for item in ai_pack["lift_recs"][:5]:
+    draw_line("Recommendations", font="Helvetica-Bold", size=12, step=18)
+    merged_recs = list(dict.fromkeys(ai_pack["recommendations"] + advanced_pack["recommendations"]))
+    for item in merged_recs[:8]:
         draw_line(f"- {item}")
 
     c.save()
@@ -1414,16 +1250,16 @@ st.markdown("""
     <div class="hero">
         <div class="hero-top">
             <div>
-                <span class="badge">PetroScope Workspace</span>
+                <span class="badge">PetroScope Advanced Workspace</span>
                 <div class="title">PetroScope</div>
                 <p class="subtitle">
-                    A practical workspace for reviewing well performance, checking reservoir behavior,
-                    and preparing quick engineering reports from production data.
+                    A stronger petroleum analytics workspace with hybrid forecasting, data-quality scoring,
+                    breakthrough detection, confidence scoring, and evidence-based AI reporting.
                 </p>
             </div>
             <div class="clean-box" style="min-width:260px;">
                 <div class="small"><b>Current use</b></div>
-                <div class="small">Well review • Trend check • Diagnostics • Report export</div>
+                <div class="small">Well review • Forecasting • Diagnostics • Saved projects • AI report</div>
             </div>
         </div>
     </div>
@@ -1432,10 +1268,10 @@ st.markdown("""
 
 st.markdown("""
 <div class="section">
-    <span class="status-chip">Workspace</span>
-    <span class="status-chip">Engineering review</span>
-    <span class="status-chip">Diagnostics</span>
-    <span class="status-chip">Reports</span>
+    <span class="status-chip">Advanced AI</span>
+    <span class="status-chip">Hybrid Forecast</span>
+    <span class="status-chip">Data Quality</span>
+    <span class="status-chip">Evidence Report</span>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1566,7 +1402,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "Dataset",
     "Setup",
     "Review",
-    "Findings",
+    "Advanced AI",
     "Forecast",
     "Export",
     "Projects"
@@ -1582,7 +1418,7 @@ with tab1:
         st.markdown("""
 <div class="clean-box">
     <h4 style="margin-top:0;">Purpose</h4>
-    <p class="small">Used to review production trends, pressure behavior, water cut, GOR, and well performance from structured field data.</p>
+    <p class="small">Used to review production trends, pressure behavior, water cut, GOR, forecast risk, and generate stronger evidence-based engineering notes.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1609,7 +1445,7 @@ with tab1:
     st.markdown("""
 <div class="note-box">
     <b>Recommended workflow:</b> load dataset → confirm columns → review trends →
-    check findings → test forecast → save project → export report.
+    inspect advanced AI findings → run hybrid forecast → save project → export report.
 </div>
 """, unsafe_allow_html=True)
 
@@ -1796,189 +1632,149 @@ with tab4:
 
 with tab5:
     st.markdown('<div class="section">', unsafe_allow_html=True)
-    st.subheader("Key Findings")
+    st.subheader("Advanced AI")
 
-    ai_pack = ai_summary(df, mapping)
-
-    s1, s2, s3, s4 = st.columns(4)
-    with s1:
-        st.metric("Reservoir Health", f"{ai_pack['health_score']}/100")
-    with s2:
-        st.metric("Production Efficiency", f"{ai_pack['efficiency_score']}/100")
-    with s3:
-        st.metric("Well Status", ai_pack["well_class"])
-    with s4:
-        highest_risk = max(ai_pack["risks"], key=ai_pack["risks"].get)
-        st.metric("Highest Risk", highest_risk.replace("_", " ").title())
-
-    if mapping["production"]:
-        x_num, _ = time_to_numeric(df[mapping["time"]])
-        q = pd.to_numeric(df[mapping["production"]], errors="coerce").values
-        fit = fit_decline_models(x_num, q)
-
-        if fit is None:
-            st.warning("Not enough valid production data for decline analysis.")
-        else:
-            best_decline_name, results = fit
-            st.success(f"Best decline model: {best_decline_name}")
-
-            hist_mask = np.isfinite(x_num) & np.isfinite(q) & (q > 0)
-            time_hist = np.array(df.loc[hist_mask, mapping["time"]])
-            q_hist = q[hist_mask]
-
-            fig_decline = go.Figure()
-            fig_decline.add_trace(go.Scatter(x=time_hist, y=q_hist, mode="lines+markers", name="Actual"))
-            for model_name, info in results.items():
-                fig_decline.add_trace(go.Scatter(x=time_hist, y=info["qhat"], mode="lines", name=f"{model_name} Fit"))
-            fig_decline.update_layout(template="plotly_dark", title="Decline Model Comparison", title_font_size=20, font=dict(size=13), hovermode="x unified")
-            st.plotly_chart(fig_decline, use_container_width=True)
-
-            metrics_df = pd.DataFrame({
-                "Model": list(results.keys()),
-                "RMSE": [results[k]["rmse"] for k in results.keys()]
-            }).sort_values("RMSE")
-            st.dataframe(metrics_df, use_container_width=True)
-
-            if best_decline_name == "Exponential":
-                decline_params_text = f"D = {results['Exponential']['D']:.5f}"
-            elif best_decline_name == "Harmonic":
-                decline_params_text = f"D = {results['Harmonic']['D']:.5f}"
-            else:
-                decline_params_text = f"D = {results['Hyperbolic']['D']:.5f}, b = {results['Hyperbolic']['b']:.2f}"
-
-            eur_value = calculate_eur(df, mapping, results, best_decline_name)
-
-    if eur_value is not None:
-        st.markdown(f"""
-<div class="clean-box">
-    <b>Estimated Ultimate Recovery (EUR):</b> {eur_value}
-</div>
-""", unsafe_allow_html=True)
-
-    st.markdown("---")
-    st.subheader("Quick Forecast")
-    pred_results = predictive_ai(df, mapping)
-    labels = {
-        "production": "Production",
-        "pressure": "Pressure",
-        "water_cut": "Water Cut",
-        "gor": "GOR",
+    ai_pack = {
+        "risks": calculate_risk_scores(df, mapping),
+        "health_score": calculate_reservoir_health_score(df, mapping, calculate_risk_scores(df, mapping)),
+        "efficiency_score": calculate_production_efficiency_score(df, mapping),
+        "well_class": classify_well(df, mapping, calculate_risk_scores(df, mapping)),
+        "drive_mechanism": estimate_drive_mechanism(df, mapping),
+        "well_problems": well_problem_detection(df, mapping, calculate_risk_scores(df, mapping)),
+        "lift_recs": artificial_lift_suggestions(df, mapping, calculate_risk_scores(df, mapping)),
+        "recommendations": production_optimization_recommendations(df, mapping, calculate_risk_scores(df, mapping)) + workover_recommendations(df, mapping, calculate_risk_scores(df, mapping)),
     }
 
-    if pred_results:
-        pred_choice = st.selectbox("Variable", list(pred_results.keys()))
-        pr = pred_results[pred_choice]
+    advanced_pack = advanced_ai_analysis(df, mapping)
 
-        fig_pred = go.Figure()
-        fig_pred.add_trace(go.Scatter(x=pr["historical_x"], y=pr["historical_y"], mode="lines+markers", name="Historical"))
-        fig_pred.add_trace(go.Scatter(x=pr["future_x"], y=pr["pred"], mode="lines+markers", name="Predicted"))
-        fig_pred.update_layout(template="plotly_dark", title=f"{labels[pred_choice]} Forecast", title_font_size=20, font=dict(size=13), hovermode="x unified")
-        st.plotly_chart(fig_pred, use_container_width=True)
-
-    st.markdown("---")
-    worst_well, worst_avg = detect_underperforming_well(df, mapping)
-    loss_pack = estimate_production_loss(df, mapping)
-    p1, p2 = st.columns(2)
-
-    with p1:
-        if worst_well is not None:
-            st.markdown(f"""
-<div class="clean-box">
-    <h4 style="margin-top:0;">Underperforming Well</h4>
-    <p class="small">Well: <b>{worst_well}</b></p>
-    <p class="small">Average production: <b>{worst_avg:.2f}</b></p>
-</div>
-""", unsafe_allow_html=True)
-
-    with p2:
-        if loss_pack is not None:
-            st.markdown(f"""
-<div class="clean-box">
-    <h4 style="margin-top:0;">Production Loss Estimate</h4>
-    <p class="small">Potential: <b>{loss_pack['potential']}</b></p>
-    <p class="small">Actual: <b>{loss_pack['actual']}</b></p>
-    <p class="small">Loss: <b>{loss_pack['loss']}</b></p>
-</div>
-""", unsafe_allow_html=True)
+    q1, q2, q3, q4 = st.columns(4)
+    with q1:
+        st.metric("Data Quality", f"{advanced_pack['quality']['overall_score']}/100")
+    with q2:
+        st.metric("Water Breakthrough", f"{advanced_pack['water_break_score']}/100")
+    with q3:
+        st.metric("Gas Breakthrough", f"{advanced_pack['gas_break_score']}/100")
+    with q4:
+        regime_flag = "Yes" if advanced_pack["regime_prod"]["changed"] else "No"
+        st.metric("Regime Change", regime_flag)
 
     st.markdown("---")
-    left, right = st.columns(2)
+    st.markdown("### Data Quality Details")
+    quality_rows = []
+    for k, v in advanced_pack["quality"]["details"].items():
+        quality_rows.append({
+            "Variable": k,
+            "Score": v["score"],
+            "Completeness %": v["completeness"],
+            "Outlier %": v["outlier_pct"],
+            "Volatility %": v["volatility"],
+        })
+    if quality_rows:
+        st.dataframe(pd.DataFrame(quality_rows), use_container_width=True)
 
-    with left:
+    st.markdown("---")
+    l1, l2 = st.columns(2)
+
+    with l1:
         st.markdown('<div class="insight-box">', unsafe_allow_html=True)
         st.markdown("### Main Findings")
-        for item in ai_pack["insights"]:
+        for item in advanced_pack["insights"]:
             st.markdown(f"<p style='color:#ffffff; font-size:17px; font-weight:600; line-height:1.8; margin-bottom:8px;'>• {item}</p>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    with right:
+    with l2:
         st.markdown('<div class="insight-box">', unsafe_allow_html=True)
-        st.markdown("### Suggested Actions")
-        for item in ai_pack["recommendations"]:
-            st.markdown(f"<p style='color:#ffffff; font-size:17px; font-weight:600; line-height:1.8; margin-bottom:8px;'>• {item}</p>", unsafe_allow_html=True)
+        st.markdown("### Evidence")
+        for item in advanced_pack["evidence"]:
+            st.markdown(f"<p style='color:#ffffff; font-size:16px; font-weight:500; line-height:1.8; margin-bottom:8px;'>• {item}</p>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
-    c_left, c_right = st.columns(2)
+    l3, l4 = st.columns(2)
 
-    with c_left:
+    with l3:
         st.markdown('<div class="insight-box">', unsafe_allow_html=True)
-        st.markdown("### Observed Well Issues")
-        for item in ai_pack["well_problems"]:
-            st.markdown(f"<p style='color:#ffffff; font-size:17px; font-weight:600; line-height:1.8; margin-bottom:8px;'>• {item}</p>", unsafe_allow_html=True)
+        st.markdown("### Suggested Actions")
+        merged_recs = list(dict.fromkeys(ai_pack["recommendations"] + advanced_pack["recommendations"]))
+        for item in merged_recs:
+            st.markdown(f"<p style='color:#ffffff; font-size:16px; font-weight:500; line-height:1.8; margin-bottom:8px;'>• {item}</p>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    with c_right:
+    with l4:
         st.markdown('<div class="insight-box">', unsafe_allow_html=True)
-        st.markdown("### Lift Review Notes")
-        for item in ai_pack["lift_recs"]:
-            st.markdown(f"<p style='color:#ffffff; font-size:17px; font-weight:600; line-height:1.8; margin-bottom:8px;'>• {item}</p>", unsafe_allow_html=True)
+        st.markdown("### Limits / Cautions")
+        if advanced_pack["limitations"]:
+            for item in advanced_pack["limitations"]:
+                st.markdown(f"<p style='color:#ffffff; font-size:16px; font-weight:500; line-height:1.8; margin-bottom:8px;'>• {item}</p>", unsafe_allow_html=True)
+        else:
+            st.markdown("<p style='color:#ffffff; font-size:16px; font-weight:500; line-height:1.8;'>• No major limitations detected from current data quality checks.</p>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
 with tab6:
     st.markdown('<div class="section">', unsafe_allow_html=True)
-    st.subheader("Forecast Models")
+    st.subheader("Forecast")
 
     target_choice = st.selectbox(
         "Target variable",
-        ["production", "pressure", "water_cut"]
+        ["production", "pressure", "water_cut", "gor"]
     )
+    horizon = st.slider("Forecast horizon", 10, 90, 30, 5)
 
-    ml_info = train_ml_models(df, mapping, target_choice)
+    forecast_pack = hybrid_forecast_engine(df, mapping, target_choice, horizon)
 
-    if ml_info is None:
-        st.warning("Not enough clean data to train ML models.")
+    if not forecast_pack.get("ok"):
+        st.warning(forecast_pack.get("reason", "Forecast unavailable."))
     else:
-        st.success(f"Best model: {ml_info['best_model_name']}")
-        st.dataframe(ml_info["results_df"], use_container_width=True)
+        st.success(f"Best model: {forecast_pack['best_model_name']}")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("Forecast Confidence", f"{forecast_pack['confidence']}/100")
+        with c2:
+            if forecast_pack.get("decline_name"):
+                st.metric("Hybrid Decline", forecast_pack["decline_name"])
+            else:
+                st.metric("Hybrid Decline", "-")
+        with c3:
+            st.metric("ML Weight", forecast_pack["blend_weight_ml"])
 
-        fig_ml = go.Figure()
-        fig_ml.add_trace(go.Scatter(
-            x=ml_info["historical_idx"],
-            y=ml_info["historical_y"],
+        st.dataframe(forecast_pack["cv_results"], use_container_width=True)
+
+        fig_fc = go.Figure()
+        fig_fc.add_trace(go.Scatter(
+            x=forecast_pack["historical_idx"],
+            y=forecast_pack["historical_y"],
             mode="lines+markers",
-            name=f"Historical {target_choice}"
+            name="Historical"
         ))
-        fig_ml.add_trace(go.Scatter(
-            x=ml_info["future_idx"],
-            y=ml_info["future_pred"],
+        fig_fc.add_trace(go.Scatter(
+            x=forecast_pack["future_idx"],
+            y=forecast_pack["future_pred"],
             mode="lines+markers",
-            name=f"Predicted {target_choice}"
+            name="Forecast"
         ))
-        fig_ml.update_layout(
+        fig_fc.add_trace(go.Scatter(
+            x=np.concatenate([forecast_pack["future_idx"], forecast_pack["future_idx"][::-1]]),
+            y=np.concatenate([forecast_pack["upper"], forecast_pack["lower"][::-1]]),
+            fill="toself",
+            line=dict(color="rgba(0,0,0,0)"),
+            name="Confidence Interval",
+            hoverinfo="skip"
+        ))
+        fig_fc.update_layout(
             template="plotly_dark",
-            title=f"ML Forecast — {target_choice}",
+            title=f"Hybrid Forecast — {target_choice}",
             title_font_size=20,
             font=dict(size=13),
             hovermode="x unified"
         )
-        st.plotly_chart(fig_ml, use_container_width=True)
+        st.plotly_chart(fig_fc, use_container_width=True)
 
         st.markdown(f"""
 <div class="note-box">
-    <b>Model note:</b> Best-performing model for this dataset is <b>{ml_info['best_model_name']}</b>.
+    <b>Forecast note:</b> confidence = <b>{forecast_pack['confidence']}/100</b>.
+    For production, the engine blends ML with decline behavior when decline fitting is available.
 </div>
 """, unsafe_allow_html=True)
 
@@ -1988,26 +1784,52 @@ with tab7:
     st.markdown('<div class="section">', unsafe_allow_html=True)
     st.subheader("Export")
 
-    ai_pack = ai_summary(df, mapping)
-    ml_info_for_report = train_ml_models(df, mapping, "production")
+    ai_pack = {
+        "risks": calculate_risk_scores(df, mapping),
+        "health_score": calculate_reservoir_health_score(df, mapping, calculate_risk_scores(df, mapping)),
+        "efficiency_score": calculate_production_efficiency_score(df, mapping),
+        "well_class": classify_well(df, mapping, calculate_risk_scores(df, mapping)),
+        "drive_mechanism": estimate_drive_mechanism(df, mapping),
+        "well_problems": well_problem_detection(df, mapping, calculate_risk_scores(df, mapping)),
+        "lift_recs": artificial_lift_suggestions(df, mapping, calculate_risk_scores(df, mapping)),
+        "recommendations": production_optimization_recommendations(df, mapping, calculate_risk_scores(df, mapping)) + workover_recommendations(df, mapping, calculate_risk_scores(df, mapping)),
+    }
+    advanced_pack = advanced_ai_analysis(df, mapping)
+
+    if mapping["production"]:
+        x_num, _ = time_to_numeric(df[mapping["time"]])
+        q = pd.to_numeric(df[mapping["production"]], errors="coerce").values
+        fit = fit_decline_models(x_num, q)
+        if fit is not None:
+            best_decline_name, results = fit
+            if best_decline_name == "Exponential":
+                decline_params_text = f"D = {results['Exponential']['D']:.5f}"
+            elif best_decline_name == "Harmonic":
+                decline_params_text = f"D = {results['Harmonic']['D']:.5f}"
+            else:
+                decline_params_text = f"D = {results['Hyperbolic']['D']:.5f}, b = {results['Hyperbolic']['b']:.2f}"
+            eur_value = calculate_eur(df, mapping, results, best_decline_name)
+
+    forecast_pack_export = hybrid_forecast_engine(df, mapping, "production", 30) if mapping.get("production") else None
 
     report_text = generate_ai_report_text(
         df=df,
         mapping=mapping,
         selected_well=selected_well,
         ai_pack=ai_pack,
+        advanced_pack=advanced_pack,
+        forecast_pack=forecast_pack_export,
         best_decline_name=best_decline_name,
         decline_params_text=decline_params_text,
-        eur_value=eur_value,
-        ml_info=ml_info_for_report
+        eur_value=eur_value
     )
 
     d1, d2 = st.columns(2)
     with d1:
         st.download_button(
-            "Download report (.txt)",
+            "Download AI report (.txt)",
             data=report_text.encode("utf-8"),
-            file_name="petroscope_report.txt",
+            file_name="petroscope_advanced_ai_report.txt",
             mime="text/plain"
         )
     with d2:
@@ -2022,42 +1844,39 @@ with tab7:
     if st.button("Generate PDF"):
         pdf_path = create_pdf_report(
             ai_pack=ai_pack,
+            advanced_pack=advanced_pack,
+            forecast_pack=forecast_pack_export,
             best_decline_name=best_decline_name,
             decline_params_text=decline_params_text,
-            eur_value=eur_value,
-            ml_info=ml_info_for_report
+            eur_value=eur_value
         )
         with open(pdf_path, "rb") as f:
             st.download_button(
                 "Download PDF",
                 f.read(),
-                file_name="petroscope_report.pdf",
+                file_name="petroscope_advanced_ai_report.pdf",
                 mime="application/pdf"
             )
 
     st.markdown("---")
-    st.subheader("Platform Notes")
-    st.markdown("""
-<div class="clean-box">
-    <p class="small"><b>Current build:</b> working engineering dashboard with diagnostics, forecasting, ML, export, accounts, saved files, and saved projects.</p>
-    <p class="small"><b>Next step:</b> move storage to a database and deploy with stronger security.</p>
-</div>
-""", unsafe_allow_html=True)
-
+    st.subheader("API Preview")
     api_payload = {
         "platform": "PetroScope",
         "selected_well": selected_well,
         "well_status": ai_pack["well_class"],
         "health_score": ai_pack["health_score"],
-        "risks": ai_pack["risks"],
+        "data_quality_score": advanced_pack["quality"]["overall_score"],
+        "water_breakthrough_score": advanced_pack["water_break_score"],
+        "gas_breakthrough_score": advanced_pack["gas_break_score"],
         "best_decline_model": best_decline_name,
+        "forecast_model": forecast_pack_export["best_model_name"] if forecast_pack_export and forecast_pack_export.get("ok") else None,
+        "forecast_confidence": forecast_pack_export["confidence"] if forecast_pack_export and forecast_pack_export.get("ok") else None,
     }
-
-    st.text_area("API preview", json.dumps(api_payload, indent=2), height=220)
+    st.text_area("API preview", json.dumps(api_payload, indent=2), height=260)
 
     st.markdown("""
 <div class="footer-box">
-    PetroScope • Engineering workspace for production data review
+    PetroScope • Advanced engineering workspace for production data review
 </div>
 """, unsafe_allow_html=True)
 
@@ -2078,6 +1897,8 @@ with tab8:
             if not project_name.strip():
                 st.error("Enter a project name.")
             else:
+                adv_pack = advanced_ai_analysis(df, mapping)
+                fc_pack = hybrid_forecast_engine(df, mapping, "production", 30) if mapping.get("production") else None
                 preview_records = raw_df.head(10).to_dict(orient="records")
                 payload = {
                     "note": project_note,
@@ -2088,6 +1909,10 @@ with tab8:
                     "data_preview": preview_records,
                     "row_count": int(len(raw_df)),
                     "columns": list(raw_df.columns),
+                    "data_quality_score": adv_pack["quality"]["overall_score"],
+                    "water_breakthrough_score": adv_pack["water_break_score"],
+                    "gas_breakthrough_score": adv_pack["gas_break_score"],
+                    "forecast_confidence": fc_pack["confidence"] if fc_pack and fc_pack.get("ok") else None,
                 }
                 save_project(st.session_state.user, project_name, payload)
                 st.session_state.loaded_project_name = safe_name(project_name)
@@ -2095,10 +1920,12 @@ with tab8:
 
     with c2:
         st.markdown("### Project Summary")
+        adv_pack = advanced_ai_analysis(df, mapping)
         st.markdown(f"""
 <div class="clean-box">
     <p class="small">Current file: <b>{current_file_name}</b></p>
     <p class="small">Rows: <b>{len(raw_df)}</b></p>
+    <p class="small">Data quality: <b>{adv_pack['quality']['overall_score']}/100</b></p>
     <p class="small">Loaded project: <b>{st.session_state.loaded_project_name or "-"}</b></p>
 </div>
 """, unsafe_allow_html=True)
@@ -2124,6 +1951,10 @@ with tab8:
     <p class="small"><b>Saved at:</b> {loaded.get("saved_at","-")}</p>
     <p class="small"><b>File:</b> {loaded.get("file_name","-")}</p>
     <p class="small"><b>Rows:</b> {loaded.get("row_count","-")}</p>
+    <p class="small"><b>Data quality:</b> {loaded.get("data_quality_score","-")}</p>
+    <p class="small"><b>Water breakthrough:</b> {loaded.get("water_breakthrough_score","-")}</p>
+    <p class="small"><b>Gas breakthrough:</b> {loaded.get("gas_breakthrough_score","-")}</p>
+    <p class="small"><b>Forecast confidence:</b> {loaded.get("forecast_confidence","-")}</p>
     <p class="small"><b>Note:</b> {loaded.get("note","-")}</p>
 </div>
 """, unsafe_allow_html=True)
